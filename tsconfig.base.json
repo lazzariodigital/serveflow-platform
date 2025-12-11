@@ -1,21 +1,35 @@
 {
+  "compileOnSave": false,
   "compilerOptions": {
-    "composite": true,
-    "declarationMap": true,
-    "emitDeclarationOnly": true,
+    "rootDir": ".",
+    "sourceMap": true,
+    "declaration": false,
+    "moduleResolution": "node",
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
     "importHelpers": true,
-    "isolatedModules": true,
-    "lib": ["es2022"],
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
-    "noEmitOnError": true,
-    "noFallthroughCasesInSwitch": true,
-    "noImplicitOverride": true,
-    "noImplicitReturns": true,
-    "noUnusedLocals": true,
+    "target": "es2015",
+    "module": "esnext",
+    "lib": ["es2020", "dom"],
     "skipLibCheck": true,
-    "strict": true,
-    "target": "es2022",
-    "customConditions": ["@platform/source"]
-  }
+    "skipDefaultLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@serveflow/auth": ["packages/auth/src/index.ts"],
+      "@serveflow/auth/server": ["packages/auth/src/server.ts"],
+      "@serveflow/config": ["packages/config/src/index.ts"],
+      "@serveflow/core": ["packages/core/src/index.ts"],
+      "@serveflow/core/pipes": ["packages/core/src/pipes/index.ts"],
+      "@serveflow/core/schemas": ["packages/core/src/schemas/index.ts"],
+      "@serveflow/identity": ["packages/identity/src/index.ts"],
+      "@serveflow/tenants": ["packages/tenants/src/index.ts"],
+      "@serveflow/tenants/react": ["packages/tenants/src/react.ts"],
+      "@serveflow/tenants/resolve": ["packages/tenants/src/resolve/index.ts"],
+      "@serveflow/webhooks": ["packages/webhooks/src/index.ts"],
+      "@serveflow/db": ["packages/db/src/index.ts"],
+      "@serveflow/db/client": ["packages/db/src/client/index.ts"],
+      "@serveflow/ui": ["packages/ui/src/index.ts"]
+    }
+  },
+  "exclude": ["node_modules", "tmp", "backup"]
 }

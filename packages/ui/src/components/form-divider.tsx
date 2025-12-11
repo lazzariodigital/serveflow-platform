@@ -1,0 +1,27 @@
+'use client';
+
+import type { Theme, SxProps } from '@mui/material/styles';
+import Divider from '@mui/material/Divider';
+
+// ----------------------------------------------------------------------
+
+export type FormDividerProps = {
+  sx?: SxProps<Theme>;
+  label?: React.ReactNode;
+};
+
+export function FormDivider({ sx, label = 'OR' }: FormDividerProps) {
+  return (
+    <Divider
+      sx={{
+        my: 3,
+        typography: 'overline',
+        color: 'text.disabled',
+        '&::before, :after': { borderTopStyle: 'dashed' },
+        ...sx,
+      }}
+    >
+      {label}
+    </Divider>
+  );
+}

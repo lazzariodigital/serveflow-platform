@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir /s \"C:\\Users\\asier\\Dev\\serveflow\\platform\\packages\\db\\src\")",
+      "Bash(dir \"C:\\Users\\asier\\Dev\\serveflow\\repo\\backup\\apps\\tenant-dashboard\\src\" /s /b)",
+      "Bash(find:*)",
+      "Bash(dir /s /b C:UsersasierDevserveflowrepobackupappstenant-dashboardsrctheme)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
