@@ -24,10 +24,10 @@ export const TenantAccessEntrySchema = z.object({
 
 export const GlobalUserSchema = z.object({
   // ════════════════════════════════════════════════════════════════
-  // IDENTIDAD - Vínculos con Frontegg
+  // IDENTIDAD - Vínculos con FusionAuth
   // ════════════════════════════════════════════════════════════════
 
-  fronteggUserId: z.string().min(1, 'Frontegg User ID is required'),
+  fusionauthUserId: z.string().min(1, 'FusionAuth User ID is required'),
   email: z.string().email('Invalid email'),
   firstName: z.string().min(1, 'First name is required'),
   lastName: z.string().min(1, 'Last name is required'),
@@ -59,7 +59,7 @@ export const GlobalUserSchema = z.object({
 // ════════════════════════════════════════════════════════════════
 
 export const CreateGlobalUserInputSchema = z.object({
-  fronteggUserId: z.string().min(1, 'Frontegg User ID is required'),
+  fusionauthUserId: z.string().min(1, 'FusionAuth User ID is required'),
   email: z.string().email('Invalid email'),
   firstName: z.string().min(1, 'First name is required'),
   lastName: z.string().min(1, 'Last name is required'),

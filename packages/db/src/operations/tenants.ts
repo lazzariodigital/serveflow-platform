@@ -1,5 +1,9 @@
 import { Model } from 'mongoose';
 import { TENANT_DB_PREFIX } from '@serveflow/config';
+import {
+  createFusionAuthTenantWithApplication,
+  deleteFusionAuthTenantWithApplication,
+} from '@serveflow/auth';
 import type { Tenant } from '../schemas';
 
 // ════════════════════════════════════════════════════════════════
@@ -8,7 +12,8 @@ import type { Tenant } from '../schemas';
 
 export interface TenantLookup {
   _id: string;
-  fronteggTenantId: string;
+  fusionauthTenantId: string;
+  fusionauthApplicationId: string;
   slug: string;
   dbName: string;
   name: string;
@@ -26,23 +31,23 @@ export interface TenantLookup {
 // ════════════════════════════════════════════════════════════════
 
 /**
- * Gets a tenant by its Frontegg Tenant ID.
+ * Gets a tenant by its FusionAuth Tenant ID.
  *
  * @param tenantModel - Mongoose Tenant Model
- * @param fronteggTenantId - Frontegg tenant ID (UUID)
+ * @param fusionauthTenantId - FusionAuth tenant ID (UUID)
  * @returns Tenant document or null if not found
  *
  * Usage:
  * ```typescript
  * const tenantModel = await mongooseConnection.getTenantModel();
- * const tenant = await getTenantByFronteggId(tenantModel, 'uuid-xxx');
+ * const tenant = await getTenantByFusionauthId(tenantModel, 'uuid-xxx');
  * ```
  */
-export async function getTenantByFronteggId(
+export async function getTenantByFusionauthId(
   tenantModel: Model<Tenant>,
-  fronteggTenantId: string
+  fusionauthTenantId: string
 ): Promise<TenantLookup | null> {
-  const tenant = await tenantModel.findOne({ fronteggTenantId }).lean();
+  const tenant = await tenantModel.findOne({ fusionauthTenantId }).lean();
   if (!tenant) return null;
   return { ...tenant, _id: tenant._id.toString() } as TenantLookup;
 }
@@ -141,7 +146,8 @@ export async function listTenants(
  * ```typescript
  * const tenantModel = await mongooseConnection.getTenantModel();
  * const tenant = await createTenant(tenantModel, {
- *   fronteggTenantId: 'uuid-xxx',
+ *   fusionauthTenantId: 'fa-tenant-uuid-xxx',
+ *   fusionauthApplicationId: 'fa-app-uuid-xxx',
  *   slug: 'gimnasio-demo',
  *   name: 'Gimnasio Demo',
  *   status: 'active',
@@ -151,7 +157,8 @@ export async function listTenants(
 export async function createTenant(
   tenantModel: Model<Tenant>,
   tenantData: {
-    fronteggTenantId: string;
+    fusionauthTenantId: string;
+    fusionauthApplicationId: string;
     slug: string;
     name: string;
     status?: 'active' | 'inactive' | 'suspended';
@@ -160,7 +167,8 @@ export async function createTenant(
   }
 ): Promise<TenantLookup> {
   const tenantDoc = {
-    fronteggTenantId: tenantData.fronteggTenantId,
+    fusionauthTenantId: tenantData.fusionauthTenantId,
+    fusionauthApplicationId: tenantData.fusionauthApplicationId,
     slug: tenantData.slug,
     name: tenantData.name,
     dbName: `${TENANT_DB_PREFIX}${tenantData.slug.replace(/-/g, '_')}`,
@@ -254,4 +262,110 @@ export async function countTenants(
   filter: Record<string, unknown> = {}
 ): Promise<number> {
   return tenantModel.countDocuments(filter);
+}
+
+// ════════════════════════════════════════════════════════════════
+// Integrated Operations (FusionAuth + MongoDB)
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Creates a new tenant with full FusionAuth integration.
+ *
+ * This function:
+ * 1. Creates a FusionAuth Tenant
+ * 2. Creates a FusionAuth Application in that tenant
+ * 3. Creates the MongoDB tenant record with FusionAuth IDs
+ *
+ * If any step fails, it rolls back the previous steps.
+ *
+ * @param tenantModel - Mongoose Tenant Model
+ * @param tenantData - Tenant data (without FusionAuth IDs)
+ * @returns Created tenant with FusionAuth IDs
+ *
+ * Usage:
+ * ```typescript
+ * const tenantModel = await mongooseConnection.getTenantModel();
+ * const tenant = await createTenantWithFusionAuth(tenantModel, {
+ *   slug: 'gimnasio-demo',
+ *   name: 'Gimnasio Demo',
+ * });
+ * // Returns tenant with fusionauthTenantId and fusionauthApplicationId populated
+ * ```
+ */
+export async function createTenantWithFusionAuth(
+  tenantModel: Model<Tenant>,
+  tenantData: {
+    slug: string;
+    name: string;
+    status?: 'active' | 'inactive' | 'suspended';
+    plan?: 'free' | 'starter' | 'pro' | 'enterprise';
+    metadata?: Record<string, unknown>;
+  }
+): Promise<TenantLookup> {
+  console.log(`[createTenantWithFusionAuth] Creating tenant: ${tenantData.name} (${tenantData.slug})`);
+
+  // 1. Create FusionAuth Tenant + Application
+  const { tenant: faTenant, application: faApp } = await createFusionAuthTenantWithApplication(
+    tenantData.name,
+    tenantData.slug
+  );
+
+  try {
+    // 2. Create MongoDB tenant record
+    const tenant = await createTenant(tenantModel, {
+      ...tenantData,
+      fusionauthTenantId: faTenant.id,
+      fusionauthApplicationId: faApp.id,
+    });
+
+    console.log(`[createTenantWithFusionAuth] Tenant created successfully: ${tenant._id}`);
+    console.log(`  - FusionAuth Tenant ID: ${faTenant.id}`);
+    console.log(`  - FusionAuth Application ID: ${faApp.id}`);
+
+    return tenant;
+  } catch (error) {
+    // Rollback FusionAuth on MongoDB failure
+    console.error('[createTenantWithFusionAuth] MongoDB creation failed, rolling back FusionAuth');
+    await deleteFusionAuthTenantWithApplication(faTenant.id);
+    throw error;
+  }
+}
+
+/**
+ * Deletes a tenant from both FusionAuth and MongoDB.
+ *
+ * WARNING: This will permanently delete:
+ * - The FusionAuth Tenant (and all its users, applications, etc.)
+ * - The MongoDB tenant record
+ *
+ * @param tenantModel - Mongoose Tenant Model
+ * @param slug - Tenant slug to delete
+ * @returns True if deleted, false if not found
+ */
+export async function deleteTenantWithFusionAuth(
+  tenantModel: Model<Tenant>,
+  slug: string
+): Promise<boolean> {
+  console.log(`[deleteTenantWithFusionAuth] Deleting tenant: ${slug}`);
+
+  // 1. Get the tenant to find FusionAuth ID
+  const tenant = await getTenantBySlug(tenantModel, slug);
+  if (!tenant) {
+    console.warn(`[deleteTenantWithFusionAuth] Tenant not found: ${slug}`);
+    return false;
+  }
+
+  // 2. Delete from FusionAuth first
+  if (tenant.fusionauthTenantId) {
+    const faDeleted = await deleteFusionAuthTenantWithApplication(tenant.fusionauthTenantId);
+    if (!faDeleted) {
+      console.warn(`[deleteTenantWithFusionAuth] Failed to delete FusionAuth tenant, continuing with MongoDB deletion`);
+    }
+  }
+
+  // 3. Delete from MongoDB
+  const result = await tenantModel.deleteOne({ slug });
+
+  console.log(`[deleteTenantWithFusionAuth] Tenant deleted: ${slug}`);
+  return result.deletedCount > 0;
 }

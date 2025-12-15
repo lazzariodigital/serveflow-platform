@@ -19,14 +19,15 @@ export interface GetCurrentUserResult {
 const TENANT_API_URL = process.env.TENANT_API_URL || 'http://localhost:3001';
 
 /**
- * Extracts Frontegg user info from JWT token
+ * Extracts FusionAuth user info from JWT token
+ * FusionAuth claims: sub (userId), aud (applicationId), tid (tenantId), roles
  */
 function decodeJwtPayload(token: string): {
   sub?: string;
   email?: string;
-  tenantId?: string;
+  tid?: string;        // FusionAuth tenant ID
+  aud?: string;        // Application ID
   roles?: string[];
-  permissions?: string[];
 } | null {
   try {
     const base64Payload = token.split('.')[1];
@@ -42,8 +43,8 @@ function decodeJwtPayload(token: string): {
  * Server-side function to get the current authenticated user.
  *
  * This function:
- * 1. Gets the Frontegg access token from cookies
- * 2. Verifies the user's tenantId matches the tenant's fronteggTenantId (membership verification)
+ * 1. Gets the FusionAuth access token from cookies
+ * 2. Verifies the user's tenantId matches the tenant's fusionauthTenantId (membership verification)
  * 3. Calls the tenant-server API to get the User from MongoDB
  *
  * @param tenant - The resolved tenant from headers
@@ -62,12 +63,9 @@ export async function getCurrentUser(tenant: TenantMVP | null): Promise<GetCurre
   }
 
   try {
-    // 2. Get the Frontegg access token from cookies
+    // 2. Get the FusionAuth access token from cookies
     const cookieStore = await cookies();
-    const accessToken =
-      cookieStore.get(`fe_access_token_${tenant.slug}`)?.value ||
-      cookieStore.get('fe_access_token')?.value ||
-      cookieStore.get('frontegg-access-token')?.value;
+    const accessToken = cookieStore.get('fa_access_token')?.value;
 
     if (!accessToken) {
       return {
@@ -93,13 +91,13 @@ export async function getCurrentUser(tenant: TenantMVP | null): Promise<GetCurre
     }
 
     const userId = tokenPayload.sub;
-    const tenantId = tokenPayload.tenantId;
+    const tenantId = tokenPayload.tid; // FusionAuth uses 'tid' for tenant ID
 
-    // 4. Verify membership: tenantId from JWT must match tenant's fronteggTenantId
-    if (tenantId !== tenant.fronteggTenantId) {
+    // 4. Verify membership: tenantId from JWT must match tenant's fusionauthTenantId
+    if (tenantId !== tenant.fusionauthTenantId) {
       console.warn(
         `[getCurrentUser] Membership verification failed. ` +
-        `User tenantId: ${tenantId}, Tenant fronteggTenantId: ${tenant.fronteggTenantId}`
+        `User tenantId: ${tenantId}, Tenant fusionauthTenantId: ${tenant.fusionauthTenantId}`
       );
       return {
         user: null,
@@ -112,7 +110,7 @@ export async function getCurrentUser(tenant: TenantMVP | null): Promise<GetCurre
 
     // 5. Call tenant-server API to get current user
     console.log(`[getCurrentUser] Calling API: ${TENANT_API_URL}/api/users/me`);
-    console.log(`[getCurrentUser] fronteggUserId: ${userId}, tenantId: ${tenantId}, tenant.slug: ${tenant.slug}`);
+    console.log(`[getCurrentUser] fusionauthUserId: ${userId}, tenantId: ${tenantId}, tenant.slug: ${tenant.slug}`);
 
     const response = await fetch(`${TENANT_API_URL}/api/users/me`, {
       method: 'GET',
@@ -140,7 +138,7 @@ export async function getCurrentUser(tenant: TenantMVP | null): Promise<GetCurre
       if (response.status === 404) {
         console.warn(
           `[getCurrentUser] User not found in MongoDB. ` +
-          `fronteggUserId: ${userId}, tenant: ${tenant.slug}`
+          `fusionauthUserId: ${userId}, tenant: ${tenant.slug}`
         );
         return {
           user: null,

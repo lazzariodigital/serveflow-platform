@@ -56,14 +56,11 @@ export const Roles = (...roles: string[]) => SetMetadata(ROLES_KEY, roles);
 /**
  * Restricts access to users with specific permissions.
  *
- * Usage:
- * ```typescript
- * @Permissions('users.read', 'users.write')
- * @Get('users')
- * getUsers() {
- *   return { ... };
- * }
- * ```
+ * NOTE: This decorator is kept for backwards compatibility.
+ * Permissions will be handled by Cerbos in Block 3.
+ * The FusionAuthGuard no longer validates permissions.
+ *
+ * @deprecated Use Cerbos for permission checks instead
  */
 export const Permissions = (...permissions: string[]) =>
   SetMetadata(PERMISSIONS_KEY, permissions);
@@ -110,7 +107,7 @@ export const CurrentUser = createParamDecorator(
 
     if (!request.user) {
       throw new Error(
-        'User not found in request. Ensure FronteggAuthGuard is applied.'
+        'User not found in request. Ensure FusionAuthGuard is applied.'
       );
     }
 
@@ -123,7 +120,7 @@ export const CurrentUser = createParamDecorator(
 // ════════════════════════════════════════════════════════════════
 
 /**
- * Parameter decorator to inject just the user's Frontegg ID.
+ * Parameter decorator to inject just the user's FusionAuth ID.
  *
  * Usage:
  * ```typescript
@@ -139,7 +136,7 @@ export const CurrentUserId = createParamDecorator(
 
     if (!request.auth?.userId) {
       throw new Error(
-        'Auth not found in request. Ensure FronteggAuthGuard is applied.'
+        'Auth not found in request. Ensure FusionAuthGuard is applied.'
       );
     }
 

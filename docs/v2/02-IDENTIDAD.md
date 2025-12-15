@@ -2,32 +2,28 @@
 
 **Estado:** En desarrollo
 **Dependencias:** Bloque 1 (Fundación) - Completado
-**Última actualización:** 2025-12-10
+**Última actualización:** 2025-12-13
 
 ---
 
-## Contenido
+## Índice
 
-### Parte A: Arquitectura de Autenticación
 1. [Visión General](#1-visión-general)
-2. [Frontegg como Proveedor de Identidad](#2-frontegg-como-proveedor-de-identidad)
-3. [Arquitectura de Apps](#3-arquitectura-de-apps)
-
-### Parte B: Modelo de Datos
-4. [User (Usuarios de Tenant)](#4-user-usuarios-de-tenant)
-5. [GlobalUser (Usuarios de Serveflow)](#5-globaluser-usuarios-de-serveflow)
-
-### Parte C: Flujos de Autenticación
-6. [Flujo de Login](#6-flujo-de-login)
-7. [Flujo de Creación de Usuario](#7-flujo-de-creación-de-usuario)
-8. [Sincronización Frontegg ↔ MongoDB](#8-sincronización-frontegg--mongodb)
-
-### Parte D: Implementación por App
-9. [Apps Next.js (Dashboards + Webapp)](#9-apps-nextjs-dashboards--webapp)
-10. [Apps NestJS (APIs)](#10-apps-nestjs-apis)
-
-### Parte E: Decisiones
-11. [Decisiones y Trade-offs](#11-decisiones-y-trade-offs)
+2. [FusionAuth: Conceptos Clave](#2-fusionauth-conceptos-clave)
+3. [Arquitectura Multi-Tenant](#3-arquitectura-multi-tenant)
+4. [Modelo de Datos](#4-modelo-de-datos)
+5. [Flujos de Autenticación](#5-flujos-de-autenticación)
+6. [Implementación por App](#6-implementación-por-app)
+   - 6.1 [Tenant Dashboard](#61-tenant-dashboard-nextjs)
+   - 6.2 [Tenant Webapp](#62-tenant-webapp-nextjs)
+   - 6.3 [Admin Dashboard](#63-admin-dashboard-nextjs)
+   - 6.4 [Tenant Server](#64-tenant-server-nestjs)
+   - 6.5 [AI Assistant (LangGraph)](#65-ai-assistant-langgraph)
+   - 6.6 [MCP Server](#66-mcp-server)
+7. [Package @serveflow/auth](#7-package-serveflowauth)
+8. [Integración con Cerbos](#8-integración-con-cerbos)
+9. [Configuración y Variables de Entorno](#9-configuración-y-variables-de-entorno)
+10. [Decisiones Tomadas](#10-decisiones-tomadas)
 
 ---
 
@@ -35,1080 +31,1624 @@
 
 ### El Problema
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  SERVEFLOW TIENE 5 APPS QUE NECESITAN AUTENTICACIÓN                         │
-│                                                                              │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐              │
-│  │ tenant/dashboard│  │  tenant/webapp  │  │ admin/dashboard │              │
-│  │   (Next.js)     │  │   (Next.js)     │  │   (Next.js)     │              │
-│  │   Puerto 4200   │  │   Puerto 4202   │  │   Puerto 4000   │              │
-│  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘              │
-│           │                    │                    │                        │
-│           ▼                    ▼                    ▼                        │
-│  ┌─────────────────┐                      ┌─────────────────┐               │
-│  │  tenant/server  │                      │   admin/server  │               │
-│  │    (NestJS)     │                      │    (NestJS)     │               │
-│  │   Puerto 3001   │                      │   Puerto 4001   │               │
-│  └─────────────────┘                      └─────────────────┘               │
-│                                                                              │
-│  REQUISITO CRÍTICO: WHITE-LABEL MULTI-TENANT                                 │
-│  • Cada tenant tiene usuarios COMPLETAMENTE AISLADOS                         │
-│  • El mismo email puede existir en diferentes tenants                        │
-│  • Cada tenant puede tener su propio branding de login                       │
-│  • Los usuarios NO se comparten entre tenants                                │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+Serveflow es una plataforma multi-tenant donde cada tenant (club deportivo) necesita:
+- Usuarios completamente aislados entre tenants
+- El mismo email puede existir en diferentes tenants
+- UI de login personalizable (white-label)
+- Diferentes tipos de usuarios (admin, staff, member)
 
-### La Solución: Frontegg + MongoDB
+### La Solución
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                             FRONTEGG                                         │
-│                    (Proveedor de Identidad White-Label)                      │
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │  • Login/Logout/Sesión por Tenant                                    │    │
-│  │  • JWT tokens firmados con RS256 (verificación via JWKS)             │    │
-│  │  • Usuarios aislados por Tenant (mismo email = usuarios distintos)   │    │
-│  │  • SSO/SAML/MFA configurable por tenant                              │    │
-│  │  • Roles y Permisos granulares                                       │    │
-│  │  • Admin Portal embebido                                             │    │
-│  │  • API REST para gestión de usuarios                                 │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-│                                    │                                         │
-│                              API + JWKS                                      │
-│                                    ▼                                         │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                             MONGODB                                          │
-│                    (Datos del Usuario)                                       │
-│                                                                              │
-│  ┌─────────────────────────────┐  ┌─────────────────────────────┐           │
-│  │  db_serveflow_sys           │  │  db_tenant_{slug}           │           │
-│  │  └── global_users           │  │  └── users                  │           │
-│  │      • Admins Serveflow     │  │      • Usuarios del tenant  │           │
-│  │      • Soporte              │  │      • Datos de negocio     │           │
-│  │      • Partners             │  │      • Preferencias         │           │
-│  └─────────────────────────────┘  └─────────────────────────────┘           │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph "Apps Frontend"
+        TD[tenant/dashboard<br/>Next.js :4200]
+        TW[tenant/webapp<br/>Next.js :4202]
+        AD[admin/dashboard<br/>Next.js :4000]
+    end
+
+    subgraph "Apps Backend"
+        TS[tenant/server<br/>NestJS :3001]
+        AS[admin/server<br/>NestJS :4001]
+    end
+
+    subgraph "Identity Layer"
+        FA[FusionAuth<br/>Autenticación]
+        CB[Cerbos<br/>Autorización]
+    end
+
+    subgraph "Data Layer"
+        MDB[(MongoDB)]
+    end
+
+    TD --> FA
+    TW --> FA
+    AD --> FA
+
+    TD --> TS
+    TW --> TS
+    AD --> AS
+
+    TS --> FA
+    TS --> CB
+    TS --> MDB
+
+    AS --> FA
+    AS --> CB
+    AS --> MDB
 ```
 
-### Principio Fundamental: Separación de Concerns
+### Separación de Responsabilidades
 
-| Responsabilidad | Frontegg | MongoDB |
-|-----------------|----------|---------|
-| **Autenticación** (¿quién eres?) | ✅ | ❌ |
-| **Sesión** (¿estás logueado?) | ✅ | ❌ |
-| **Datos básicos** (email, nombre) | ✅ | ✅ (copia) |
-| **Datos de negocio** (teléfono, DNI) | ❌ | ✅ |
-| **Membresías a sedes** | ❌ | ✅ |
-| **Preferencias** | ❌ | ✅ |
-| **Roles y Permisos** | ✅ | ❌ (lee de JWT) |
+| Componente | Responsabilidad | Qué almacena |
+|------------|-----------------|--------------|
+| **FusionAuth** | Autenticación (¿Quién eres?) | Credenciales, JWT, MFA, OAuth |
+| **Cerbos** | Autorización (¿Qué puedes hacer?) | Policies (en archivos YAML) |
+| **MongoDB** | Datos de negocio del usuario | Perfil, preferencias, organizaciones |
 
 ---
 
-## 2. Frontegg como Proveedor de Identidad
+## 2. FusionAuth: Conceptos Clave
 
-### Modelo White-Label: Un Entorno por Tenant
+### ¿Qué es FusionAuth?
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│              MODELO WHITE-LABEL - USUARIOS COMPLETAMENTE AISLADOS            │
-│                                                                              │
-│  FRONTEGG                                       SERVEFLOW                    │
-│  ────────                                       ─────────                    │
-│                                                                              │
-│  ┌─────────────────────────────┐               ┌─────────────────────────┐  │
-│  │ Frontegg Tenant Environment │ ════════════► │      Tenant             │  │
-│  │ tenant-abc.frontegg.com     │               │ slug: "gimnasio-demo"   │  │
-│  │ clientId: xxx-yyy-zzz       │               │ fronteggTenantId: abc   │  │
-│  │                             │               │ fronteggConfig: {       │  │
-│  │  ┌───────────────────────┐  │               │   baseUrl, clientId     │  │
-│  │  │ User: juan@mail.com   │  │               │ }                       │  │
-│  │  │ Password: ****        │  │               └─────────────────────────┘  │
-│  │  │ Roles: [Admin]        │  │                          │                 │
-│  │  └───────────────────────┘  │                          │ tiene           │
-│  │                             │                          ▼                 │
-│  │  ┌───────────────────────┐  │               ┌─────────────────────────┐  │
-│  │  │ User: maria@mail.com  │  │               │  db_tenant_gimnasio     │  │
-│  │  │ Password: ****        │  │               │  └── users              │  │
-│  │  │ Roles: [Member]       │  │               │      ├── juan@mail.com  │  │
-│  │  └───────────────────────┘  │               │      └── maria@mail.com │  │
-│  └─────────────────────────────┘               └─────────────────────────┘  │
-│                                                                              │
-│  ┌─────────────────────────────┐               ┌─────────────────────────┐  │
-│  │ Frontegg Tenant Environment │ ════════════► │      Tenant             │  │
-│  │ tenant-xyz.frontegg.com     │               │ slug: "spa-wellness"    │  │
-│  │ clientId: aaa-bbb-ccc       │               │ fronteggTenantId: xyz   │  │
-│  │                             │               │ fronteggConfig: {       │  │
-│  │  ┌───────────────────────┐  │               │   baseUrl, clientId     │  │
-│  │  │ User: juan@mail.com   │  │  ◄── MISMO    │ }                       │  │
-│  │  │ Password: ****        │  │      EMAIL    └─────────────────────────┘  │
-│  │  │ Roles: [Owner]        │  │      PERO                  │              │
-│  │  └───────────────────────┘  │      USUARIO               │ tiene        │
-│  │                             │      DIFERENTE             ▼              │
-│  └─────────────────────────────┘               ┌─────────────────────────┐  │
-│                                                │  db_tenant_spa          │  │
-│                                                │  └── users              │  │
-│  CLAVE: juan@mail.com en gimnasio-demo        │      └── juan@mail.com  │  │
-│         es un USUARIO DIFERENTE de            └─────────────────────────┘  │
-│         juan@mail.com en spa-wellness                                      │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+FusionAuth es un proveedor de identidad (IdP) que maneja:
+- Login/Registro de usuarios
+- Tokens JWT con firma RS256
+- Multi-Factor Authentication (MFA)
+- Social Login (Google, etc.)
+- Passwordless (Magic Links)
 
-### ¿Por qué Frontegg?
+### Conceptos Fundamentales
 
-| Requisito | Clerk | Auth0 | Frontegg |
-|-----------|-------|-------|----------|
-| **Usuarios aislados por tenant** | ❌ Pool compartido | ⚠️ Requiere múltiples tenants | ✅ Nativo |
-| **White-label login** | ⚠️ Limitado | ✅ | ✅ |
-| **Mismo email en diferentes tenants** | ❌ | ⚠️ | ✅ |
-| **SDK para NestJS** | ❌ | ✅ | ✅ |
-| **SDK para Next.js** | ✅ | ✅ | ✅ |
-| **Admin Portal embebido** | ❌ | ❌ | ✅ |
-| **RBAC granular** | ✅ | ✅ | ✅ |
-| **AI Agent Integration** | ❌ | ❌ | ✅ |
+```mermaid
+erDiagram
+    FUSIONAUTH_TENANT ||--o{ APPLICATION : contains
+    APPLICATION ||--o{ REGISTRATION : has
+    FUSIONAUTH_USER ||--o{ REGISTRATION : has
+    REGISTRATION ||--o{ ROLE : assigned
 
-### Qué guarda Frontegg vs MongoDB
+    FUSIONAUTH_TENANT {
+        uuid id
+        string name
+        json config
+    }
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          DISTRIBUCIÓN DE DATOS                               │
-│                                                                              │
-│  FRONTEGG (source of truth para auth)     MONGODB (source of truth datos)   │
-│  ─────────────────────────────────────     ─────────────────────────────────│
-│                                                                              │
-│  ✅ email                              ✅ email (copia, sync via API)        │
-│  ✅ name                               ✅ firstName, lastName (copia)        │
-│  ✅ profilePictureUrl                  ✅ imageUrl (copia)                   │
-│  ✅ password (hashed)                  ❌ nunca                              │
-│  ✅ OAuth providers                    ❌ no lo necesitamos                  │
-│  ✅ MFA settings                       ❌ no lo necesitamos                  │
-│  ✅ Session tokens                     ❌ no lo necesitamos                  │
-│  ✅ roles[]                            ❌ leemos del JWT                     │
-│  ✅ permissions[]                      ❌ leemos del JWT                     │
-│  ✅ tenantId                           ❌ implícito (DB separada)            │
-│                                                                              │
-│  ❌ phoneNumber                        ✅ phoneNumber (para WhatsApp)        │
-│  ❌ idNumber (DNI)                     ✅ idNumber                           │
-│  ❌ birthDate                          ✅ birthDate                          │
-│  ❌ organizationIds (sedes)            ✅ organizationIds                    │
-│  ❌ preferences                        ✅ preferences                        │
-│  ❌ providerProfile                    ✅ providerProfile                    │
-│  ❌ legal consent                      ✅ legal                              │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
+    APPLICATION {
+        uuid id
+        string name
+        uuid tenantId
+        json oauthConfig
+        json jwtConfig
+    }
+
+    FUSIONAUTH_USER {
+        uuid id
+        string email
+        string password_hash
+        boolean verified
+    }
+
+    REGISTRATION {
+        uuid userId
+        uuid applicationId
+        string[] roles
+        json data
+    }
+
+    ROLE {
+        uuid id
+        string name
+        uuid applicationId
+    }
 ```
 
----
+#### Tenant (en FusionAuth)
+- Contenedor de aislamiento de usuarios
+- Cada Serveflow Tenant = 1 FusionAuth Tenant
+- El mismo email puede existir en diferentes FusionAuth Tenants
 
-## 3. Arquitectura de Apps
+#### Application
+- Define una "app" dentro de un Tenant
+- Tiene su propia configuración OAuth/JWT
+- 1 Application por Serveflow Tenant (dashboard + webapp comparten)
 
-### Mapa de Apps y Acceso
+#### Registration
+- Relación Usuario ↔ Application
+- Contiene los **roles** del usuario en esa app
+- Un usuario puede tener registrations en múltiples applications
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           APPS DE TENANT                                     │
-│                    (Acceso: Usuarios del tenant)                             │
-│                                                                              │
-│  ┌────────────────────────────────────────────────────────────────────┐     │
-│  │                                                                     │     │
-│  │   {tenant}.serveflow.app/dashboard  ──►  tenant/dashboard (4200)   │     │
-│  │   Dashboard para admins del tenant                                  │     │
-│  │   • Gestión de usuarios                                             │     │
-│  │   • Gestión de reservas                                             │     │
-│  │   • Configuración del negocio                                       │     │
-│  │                                                                     │     │
-│  │   {tenant}.serveflow.app/api/*  ──►  tenant/server (3001)           │     │
-│  │   API backend del tenant                                            │     │
-│  │   • CRUD usuarios                                                   │     │
-│  │   • Lógica de negocio                                               │     │
-│  │                                                                     │     │
-│  │   {tenant}.serveflow.app  ──►  tenant/webapp (4202)                 │     │
-│  │   App pública para clientes finales                                 │     │
-│  │   • Ver servicios                                                   │     │
-│  │   • Hacer reservas                                                  │     │
-│  │   • Mi perfil                                                       │     │
-│  │                                                                     │     │
-│  └────────────────────────────────────────────────────────────────────┘     │
-│                                                                              │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                           APPS DE ADMIN                                      │
-│                    (Acceso: Usuarios de Serveflow)                           │
-│                                                                              │
-│  ┌────────────────────────────────────────────────────────────────────┐     │
-│  │                                                                     │     │
-│  │   admin.serveflow.app  ──►  admin/dashboard (4000)                  │     │
-│  │   Dashboard para admins de Serveflow                                │     │
-│  │   • Gestión de tenants                                              │     │
-│  │   • Usuarios globales                                               │     │
-│  │   • Métricas de plataforma                                          │     │
-│  │                                                                     │     │
-│  │   admin.serveflow.app/api/*  ──►  admin/server (4001)               │     │
-│  │   API backend de Serveflow                                          │     │
-│  │   • CRUD tenants                                                    │     │
-│  │   • CRUD global users                                               │     │
-│  │                                                                     │     │
-│  └────────────────────────────────────────────────────────────────────┘     │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+#### Role
+- Pertenece a una Application
+- Se asigna via Registration
+- Roles: `owner`, `admin`, `staff`, `member`
 
-### Flujo de Request por App
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    TENANT APPS (dashboard, webapp)                           │
-│                                                                              │
-│  Request: gimnasio-demo.serveflow.app/dashboard                              │
-│                                                                              │
-│  ┌──────────────┐     ┌──────────────┐     ┌──────────────┐                 │
-│  │   Browser    │────►│  Middleware  │────►│    Page      │                 │
-│  │              │     │  (Next.js)   │     │  Component   │                 │
-│  └──────────────┘     └──────────────┘     └──────────────┘                 │
-│                              │                    │                          │
-│                              │                    │                          │
-│                              ▼                    ▼                          │
-│                       ┌──────────────┐     ┌──────────────┐                 │
-│                       │  1. Extraer  │     │  5. Obtener  │                 │
-│                       │  tenant slug │     │  User de     │                 │
-│                       │  del host    │     │  MongoDB     │                 │
-│                       └──────────────┘     └──────────────┘                 │
-│                              │                    ▲                          │
-│                              ▼                    │                          │
-│                       ┌──────────────┐     ┌──────────────┐                 │
-│                       │  2. Obtener  │────►│  4. Decode   │                 │
-│                       │  Frontegg    │     │  JWT payload │                 │
-│                       │  access_token│     │  (userId,    │                 │
-│                       │  de cookie   │     │  tenantId)   │                 │
-│                       └──────────────┘     └──────────────┘                 │
-│                              │                                               │
-│                              ▼                                               │
-│                       ┌──────────────┐                                      │
-│                       │  3. Verificar│                                      │
-│                       │  tenantId ==│                                       │
-│                       │  fronteggId  │                                      │
-│                       └──────────────┘                                      │
-│                                                                              │
-│  Resultado: Request tiene tenantSlug + fronteggUserId + User de MongoDB     │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 4. User (Usuarios de Tenant)
-
-### Ubicación
-
-```
-db_tenant_{slug}.users
-```
-
-Cada tenant tiene su propia colección de usuarios, **completamente aislada**.
-
-### Arquitectura: Zod-First
-
-Siguiendo los principios de [01-FUNDACION.md - Sección 5.5](./01-FUNDACION.md#55-arquitectura-de-código-zod-first):
-
-- **Zod Schema** en `@serveflow/core` = Única fuente de verdad
-- **Mongoose Schema** en `@serveflow/db` = Implementa el tipo de Zod
-- **NO DTOs separados** = Usar ZodValidationPipe
-
-### Definición: Zod Schema (Single Source of Truth)
+### JWT de FusionAuth
 
 ```typescript
-// packages/core/src/schemas/user.schema.ts
-import { z } from 'zod';
+// Estructura del JWT que genera FusionAuth
+interface FusionAuthJWT {
+  // Claims estándar
+  sub: string;           // User ID (UUID)
+  aud: string;           // Application ID
+  iss: string;           // FusionAuth URL (issuer)
+  exp: number;           // Expiration timestamp
+  iat: number;           // Issued at timestamp
 
-// ════════════════════════════════════════════════════════════════
-// ENUMS
-// ════════════════════════════════════════════════════════════════
+  // Claims de FusionAuth
+  email: string;
+  email_verified: boolean;
+  authenticationType: string;  // 'PASSWORD', 'PASSWORDLESS', etc.
 
-export const UserStatusSchema = z.enum([
-  'active',
-  'inactive',
-  'suspended',
-  'pending',
-  'archived'
-]);
+  // Claims del Registration
+  roles: string[];       // ['admin', 'staff'] - del Registration
 
-export const IdTypeSchema = z.enum(['dni', 'passport', 'nie', 'other']);
-
-// ════════════════════════════════════════════════════════════════
-// SUB-SCHEMAS
-// ════════════════════════════════════════════════════════════════
-
-export const UserNotificationsSchema = z.object({
-  email: z.boolean().default(true),
-  sms: z.boolean().default(false),
-  push: z.boolean().default(true),
-  whatsapp: z.boolean().default(false),
-});
-
-export const UserPreferencesSchema = z.object({
-  language: z.string().default('es'),
-  timezone: z.string().default('Europe/Madrid'),
-  notifications: UserNotificationsSchema.optional(),
-});
-
-export const UserLegalSchema = z.object({
-  acceptedTerms: z.boolean().default(false),
-  acceptedPrivacy: z.boolean().default(false),
-  acceptedMarketing: z.boolean().default(false),
-  consentDate: z.coerce.date().optional(),
-});
-
-export const ProviderProfileSchema = z.object({
-  bio: z.string().max(500).optional(),
-  specializations: z.array(z.string()).default([]),
-  certifications: z.array(z.string()).optional(),
-});
-
-// ════════════════════════════════════════════════════════════════
-// MAIN SCHEMA
-// ════════════════════════════════════════════════════════════════
-
-export const UserSchema = z.object({
-  _id: z.string().optional(),
-
-  // ── IDENTIDAD ──────────────────────────────────────────────────
-  // Vínculo con Frontegg
-  fronteggUserId: z.string().min(1, 'Frontegg User ID is required'),
-
-  // Datos básicos - Sincronizados desde Frontegg
-  email: z.string().email().toLowerCase(),
-  firstName: z.string().min(1).max(100),
-  lastName: z.string().min(1).max(100),
-
-  // Estado
-  status: UserStatusSchema.default('pending'),
-  isVerified: z.boolean().default(false),
-
-  // Multi-sede (organizations dentro del tenant)
-  organizationIds: z.array(z.string()).default([]),
-
-  // ── OPCIONAL ───────────────────────────────────────────────────
-  imageUrl: z.string().url().optional(),
-  primaryOrganizationId: z.string().optional(),
-  createdBy: z.string().optional(),
-  lastLoginAt: z.coerce.date().optional(),
-
-  // Contacto adicional (no está en Frontegg)
-  phoneNumber: z.string()
-    .regex(/^\+\d{10,15}$/, 'Phone must be E.164 format: +34666555444')
-    .optional(),
-
-  // Documento de identidad
-  idNumber: z.string().optional(),
-  idType: IdTypeSchema.optional(),
-
-  // Personal
-  birthDate: z.coerce.date().optional(),
-
-  // Preferencias
-  preferences: UserPreferencesSchema.optional(),
-
-  // Legal
-  legal: UserLegalSchema.optional(),
-
-  // Provider profile (solo para proveedores de servicios)
-  providerProfile: ProviderProfileSchema.optional(),
-
-  // Timestamps
-  createdAt: z.coerce.date().optional(),
-  updatedAt: z.coerce.date().optional(),
-});
-
-// ════════════════════════════════════════════════════════════════
-// INPUT SCHEMAS (para crear/actualizar)
-// ════════════════════════════════════════════════════════════════
-
-export const CreateUserRequestSchema = UserSchema.pick({
-  email: true,
-  firstName: true,
-  lastName: true,
-}).extend({
-  imageUrl: z.string().url().optional(),
-  phoneNumber: z.string().regex(/^\+\d{10,15}$/).optional(),
-  organizationIds: z.array(z.string()).optional(),
-});
-
-export const UpdateUserRequestSchema = UserSchema.partial().omit({
-  _id: true,
-  fronteggUserId: true,  // No se puede cambiar
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const ListUsersRequestSchema = z.object({
-  status: UserStatusSchema.optional(),
-  organizationId: z.string().optional(),
-  search: z.string().optional(),
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(20),
-});
-
-// ════════════════════════════════════════════════════════════════
-// TIPOS INFERIDOS (NO interfaces manuales)
-// ════════════════════════════════════════════════════════════════
-
-export type User = z.infer<typeof UserSchema>;
-export type CreateUserRequest = z.infer<typeof CreateUserRequestSchema>;
-export type UpdateUserRequest = z.infer<typeof UpdateUserRequestSchema>;
-export type ListUsersRequest = z.infer<typeof ListUsersRequestSchema>;
-export type UserStatus = z.infer<typeof UserStatusSchema>;
+  // Claims custom (via JWT Populate Lambda)
+  tenantId: string;      // ID del Serveflow Tenant
+  organizationIds: string[];  // IDs de organizaciones
+  permissions: string[]; // Permisos calculados
+}
 ```
 
-### Definición: Mongoose Schema
+### Login API vs OAuth
+
+FusionAuth ofrece dos formas de autenticar:
+
+| Aspecto | Login API | OAuth2/OIDC |
+|---------|-----------|-------------|
+| **UI** | Custom (nosotros la construimos) | Hosted por FusionAuth |
+| **Flujo** | POST directo a `/api/login` | Redirects OAuth |
+| **Credenciales** | Pasan por nuestra app | Solo FusionAuth las ve |
+| **Uso en Serveflow** | ✅ Usamos esto | ❌ No usamos |
+
+Usamos **Login API** porque necesitamos UI custom white-label.
+
+---
+
+## 3. Arquitectura Multi-Tenant
+
+### Mapeo Serveflow ↔ FusionAuth
+
+```mermaid
+graph LR
+    subgraph "Serveflow (MongoDB)"
+        ST1[Tenant: club-padel-madrid]
+        ST2[Tenant: fitness-barcelona]
+        ST3[Tenant: gym-valencia]
+    end
+
+    subgraph "FusionAuth"
+        FT1[Tenant: club-padel-madrid]
+        FT2[Tenant: fitness-barcelona]
+        FT3[Tenant: gym-valencia]
+        FTA[Tenant: serveflow-admin]
+
+        FA1[App: club-padel-app]
+        FA2[App: fitness-bcn-app]
+        FA3[App: gym-vlc-app]
+        FAA[App: admin-dashboard]
+    end
+
+    ST1 --> FT1
+    ST2 --> FT2
+    ST3 --> FT3
+
+    FT1 --> FA1
+    FT2 --> FA2
+    FT3 --> FA3
+    FTA --> FAA
+```
+
+### Configuración en Tenant (MongoDB)
+
+```typescript
+// En db_serveflow_sys.tenants
+interface Tenant {
+  slug: string;                    // "club-padel-madrid"
+  name: string;                    // "Club Pádel Madrid"
+
+  // Configuración de FusionAuth
+  fusionauthTenantId: string;      // UUID del Tenant en FusionAuth
+  fusionauthConfig?: {
+    baseUrl?: string;              // URL custom si tiene instancia dedicada
+    applicationId?: string;        // UUID de la Application
+  };
+
+  database: {
+    name: string;                  // "db_tenant_club_padel_madrid"
+  };
+
+  // ... resto de campos
+}
+```
+
+### Aislamiento de Usuarios
+
+```mermaid
+sequenceDiagram
+    participant U1 as Usuario juan@gmail.com<br/>(Club Madrid)
+    participant U2 as Usuario juan@gmail.com<br/>(Club Barcelona)
+    participant FA as FusionAuth
+    participant API as API Serveflow
+
+    Note over U1,U2: El mismo email, diferentes tenants
+
+    U1->>FA: Login en club-madrid.serveflow.app
+    FA-->>U1: JWT con tenantId: "madrid-uuid"
+
+    U2->>FA: Login en club-barcelona.serveflow.app
+    FA-->>U2: JWT con tenantId: "barcelona-uuid"
+
+    U1->>API: Request con JWT (madrid)
+    API->>API: Conecta a db_tenant_club_madrid
+
+    U2->>API: Request con JWT (barcelona)
+    API->>API: Conecta a db_tenant_club_barcelona
+```
+
+---
+
+## 4. Modelo de Datos
+
+### User (MongoDB - por tenant)
+
+**Ubicación:** `db_tenant_{slug}.users`
 
 ```typescript
 // packages/db/src/schemas/user.schema.ts
-import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
+interface User {
+  _id: ObjectId;
 
-export type UserDocument = HydratedDocument<User>;
+  // ═══════════════════════════════════════════════════════════════
+  // Vínculo con FusionAuth
+  // ═══════════════════════════════════════════════════════════════
+  fusionauthUserId: string;     // UUID del user en FusionAuth
 
-@Schema({ timestamps: true, collection: 'users' })
-export class User {
-  @Prop({ required: true, unique: true, index: true })
-  fronteggUserId!: string;
-
-  @Prop({ required: true, lowercase: true, index: true })
-  email!: string;
-
-  @Prop({ required: true })
-  firstName!: string;
-
-  @Prop({ required: true })
-  lastName!: string;
-
-  @Prop({
-    required: true,
-    enum: ['active', 'inactive', 'suspended', 'pending', 'archived'],
-    default: 'pending',
-    index: true
-  })
-  status!: string;
-
-  @Prop({ default: false })
-  isVerified!: boolean;
-
-  @Prop({ type: [String], default: [], index: true })
-  organizationIds!: string[];
-
-  @Prop()
+  // ═══════════════════════════════════════════════════════════════
+  // Datos sincronizados desde FusionAuth
+  // ═══════════════════════════════════════════════════════════════
+  email: string;                // Único por tenant
+  firstName: string;
+  lastName: string;
   imageUrl?: string;
+  isVerified: boolean;          // Email verificado
 
-  @Prop()
+  // ═══════════════════════════════════════════════════════════════
+  // Datos SOLO en MongoDB (FusionAuth no los tiene)
+  // ═══════════════════════════════════════════════════════════════
+  phoneNumber?: string;         // E.164 format
+  idNumber?: string;            // DNI/Pasaporte
+  idType?: 'dni' | 'passport' | 'nie' | 'other';
+  birthDate?: Date;
+  address?: {
+    street?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+    country?: string;
+  };
+
+  // Multi-organización (sedes)
+  organizationIds: string[];
   primaryOrganizationId?: string;
 
-  @Prop()
-  createdBy?: string;
+  // Estado
+  status: 'active' | 'inactive' | 'suspended' | 'pending' | 'archived';
 
-  @Prop()
+  // Preferencias
+  preferences?: {
+    language: string;           // 'es', 'en'
+    timezone: string;           // 'Europe/Madrid'
+    notifications: {
+      email: boolean;
+      sms: boolean;
+      push: boolean;
+      whatsapp: boolean;
+    };
+  };
+
+  // Legal
+  legal?: {
+    acceptedTerms: boolean;
+    acceptedPrivacy: boolean;
+    acceptedMarketing: boolean;
+    consentDate?: Date;
+  };
+
+  // Provider (monitores, entrenadores)
+  providerProfile?: {
+    bio?: string;
+    specializations: string[];
+    certifications?: string[];
+  };
+
+  // Timestamps
   lastLoginAt?: Date;
-
-  @Prop({ sparse: true })
-  phoneNumber?: string;
-
-  @Prop()
-  idNumber?: string;
-
-  @Prop({ enum: ['dni', 'passport', 'nie', 'other'] })
-  idType?: string;
-
-  @Prop()
-  birthDate?: Date;
-
-  @Prop({ type: Object })
-  preferences?: Record<string, unknown>;
-
-  @Prop({ type: Object })
-  legal?: Record<string, unknown>;
-
-  @Prop({ type: Object })
-  providerProfile?: Record<string, unknown>;
+  createdBy?: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
-
-export const UserSchema = SchemaFactory.createForClass(User);
-
-// Índices
-UserSchema.index({ phoneNumber: 1 }, { sparse: true });
 ```
 
-### Índices en MongoDB
+### GlobalUser (MongoDB - sistema)
 
-```javascript
-// Configurados automáticamente por Mongoose decorators
-{ fronteggUserId: 1 }                 // unique - lookup principal
-{ email: 1 }                          // búsqueda por email
-{ status: 1 }                         // filtrar por estado
-{ organizationIds: 1 }                // usuarios de una sede
-{ phoneNumber: 1 }                    // sparse - para WhatsApp
-```
-
----
-
-## 5. GlobalUser (Usuarios de Serveflow)
-
-### Ubicación
-
-```
-db_serveflow_sys.global_users
-```
-
-Usuarios que operan a nivel de plataforma, **no pertenecen a ningún tenant**.
-
-### Definición: Zod Schema
+**Ubicación:** `db_serveflow_sys.global_users`
 
 ```typescript
-// packages/core/src/schemas/global-user.schema.ts
-import { z } from 'zod';
+// packages/db/src/schemas/global-user.schema.ts
+interface GlobalUser {
+  _id: ObjectId;
 
-export const GlobalUserStatusSchema = z.enum(['active', 'inactive', 'suspended']);
+  // Vínculo con FusionAuth (Tenant: serveflow-admin)
+  fusionauthUserId: string;
 
-export const TenantAccessSchema = z.object({
-  tenantId: z.string(),
-  tenantSlug: z.string(),
-  grantedAt: z.coerce.date(),
-  grantedBy: z.string(),
-});
-
-export const GlobalUserSchema = z.object({
-  _id: z.string().optional(),
-
-  // Identidad - Vínculo con Frontegg (entorno de admin)
-  fronteggUserId: z.string().min(1, 'Frontegg User ID is required'),
-  email: z.string().email().toLowerCase(),
-  firstName: z.string().min(1).max(100),
-  lastName: z.string().min(1).max(100),
-  imageUrl: z.string().url().optional(),
+  // Datos básicos
+  email: string;
+  firstName: string;
+  lastName: string;
+  imageUrl?: string;
 
   // Estado
-  status: GlobalUserStatusSchema.default('active'),
+  status: 'active' | 'inactive' | 'suspended';
 
-  // Acceso a tenants (para soporte/partners)
-  accessibleTenants: z.array(TenantAccessSchema).optional(),
+  // Acceso a tenants (para soporte)
+  // NOTA: El rol (superadmin/support/billing) viene del JWT
+  accessibleTenants?: Array<{
+    tenantId: string;
+    tenantSlug: string;
+    role: 'viewer' | 'support';
+    grantedAt: Date;
+    grantedBy: string;
+    expiresAt?: Date;           // Acceso temporal
+  }>;
 
-  // Metadata
-  lastLoginAt: z.coerce.date().optional(),
-  createdAt: z.coerce.date().optional(),
-  updatedAt: z.coerce.date().optional(),
-});
-
-export type GlobalUser = z.infer<typeof GlobalUserSchema>;
-export type GlobalUserStatus = z.infer<typeof GlobalUserStatusSchema>;
-export type TenantAccess = z.infer<typeof TenantAccessSchema>;
+  // Timestamps
+  lastLoginAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
 ```
 
-### User vs GlobalUser
+### Relación FusionAuth ↔ MongoDB
 
-| Aspecto | User | GlobalUser |
-|---------|------|------------|
-| **Base de datos** | `db_tenant_{slug}.users` | `db_serveflow_sys.global_users` |
-| **Scope** | Un solo tenant | Plataforma completa |
-| **Acceso a apps** | tenant/* | admin/* |
-| **Multi-tenant** | No (aislado) | Sí (puede ver múltiples) |
-| **Frontegg env** | Entorno del tenant | Entorno de admin |
+```mermaid
+graph LR
+    subgraph "FusionAuth"
+        FU[User<br/>id: uuid-123<br/>email: juan@mail.com]
+        FR[Registration<br/>roles: admin, staff]
+    end
+
+    subgraph "MongoDB"
+        MU[User<br/>fusionauthUserId: uuid-123<br/>+ datos de negocio]
+    end
+
+    FU --> FR
+    FU -.->|fusionauthUserId| MU
+```
+
+**Principio:** FusionAuth es source of truth para autenticación, MongoDB para datos de negocio.
 
 ---
 
-## 6. Flujo de Login
+## 5. Flujos de Autenticación
 
-### Tenant Dashboard/Webapp
+### 5.1 Flujo de Login
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  FLUJO DE LOGIN - TENANT                                                     │
-│                                                                              │
-│  1. Usuario accede a gimnasio-demo.serveflow.app/dashboard                   │
-│                                                                              │
-│  ┌────────────┐                                                              │
-│  │  Browser   │                                                              │
-│  │  accede    │                                                              │
-│  └─────┬──────┘                                                              │
-│        │                                                                     │
-│        ▼                                                                     │
-│  ┌────────────────────────────────────────────────────────────────┐         │
-│  │  2. MIDDLEWARE (Next.js)                                        │         │
-│  │     ├── Extrae tenant: "gimnasio-demo" del host                 │         │
-│  │     ├── Busca fe_access_token en cookies                        │         │
-│  │     └── Si no hay token → redirect a /sign-in                   │         │
-│  └────────────────────────────────────────────────────────────────┘         │
-│        │                                                                     │
-│        ▼                                                                     │
-│  ┌────────────────────────────────────────────────────────────────┐         │
-│  │  3. FRONTEGG LOGIN                                              │         │
-│  │     ├── FronteggAppProvider carga config del tenant             │         │
-│  │     ├── useLoginWithRedirect() → Frontegg hosted login          │         │
-│  │     └── Usuario introduce credenciales                          │         │
-│  └────────────────────────────────────────────────────────────────┘         │
-│        │                                                                     │
-│        ▼                                                                     │
-│  ┌────────────────────────────────────────────────────────────────┐         │
-│  │  4. FRONTEGG CALLBACK                                           │         │
-│  │     ├── Frontegg valida credenciales                            │         │
-│  │     ├── Genera JWT con: sub, email, tenantId, roles, perms      │         │
-│  │     └── Guarda access_token en cookie: fe_access_token          │         │
-│  └────────────────────────────────────────────────────────────────┘         │
-│        │                                                                     │
-│        ▼                                                                     │
-│  ┌────────────────────────────────────────────────────────────────┐         │
-│  │  5. VERIFICACIÓN DE MEMBRESÍA                                   │         │
-│  │     ├── Middleware decodifica JWT                               │         │
-│  │     ├── Extrae tenantId del token                               │         │
-│  │     ├── Verifica: token.tenantId === tenant.fronteggTenantId    │         │
-│  │     └── Si no coincide → 403 Forbidden                          │         │
-│  └────────────────────────────────────────────────────────────────┘         │
-│        │                                                                     │
-│        ▼                                                                     │
-│  ┌────────────────────────────────────────────────────────────────┐         │
-│  │  6. OBTENER USER DE MONGODB                                     │         │
-│  │     ├── Llama a API: GET /api/users/me                          │         │
-│  │     ├── Bearer token en header                                  │         │
-│  │     ├── API busca user por fronteggUserId en db_tenant_{slug}   │         │
-│  │     └── Si no existe → USER_NOT_FOUND (nuevo usuario)           │         │
-│  └────────────────────────────────────────────────────────────────┘         │
-│        │                                                                     │
-│        ▼                                                                     │
-│  ┌────────────────────────────────────────────────────────────────┐         │
-│  │  7. RENDERIZAR DASHBOARD                                        │         │
-│  │     ├── User disponible en contexto                             │         │
-│  │     ├── Roles/permisos del JWT para UI                          │         │
-│  │     └── Datos de negocio de MongoDB                             │         │
-│  └────────────────────────────────────────────────────────────────┘         │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+sequenceDiagram
+    participant U as Usuario
+    participant FE as Frontend<br/>(Next.js)
+    participant FA as FusionAuth
+    participant MW as Middleware
+    participant API as Backend<br/>(NestJS)
+    participant DB as MongoDB
+
+    U->>FE: Accede a club-madrid.serveflow.app
+    FE->>FE: Middleware detecta no hay token
+    FE-->>U: Redirige a /sign-in
+
+    U->>FE: Ingresa email + password
+    FE->>FA: POST /api/login
+
+    alt Credenciales válidas
+        FA-->>FE: JWT + Refresh Token
+        FE->>FE: Guarda tokens en cookies
+        FE-->>U: Redirige a /dashboard
+
+        U->>FE: Accede a /dashboard
+        FE->>MW: Request con cookie
+        MW->>MW: Verifica JWT (JWKS)
+        MW->>MW: Inyecta headers
+        FE->>API: GET /api/users/me
+        API->>API: FusionAuthGuard valida JWT
+        API->>DB: Busca user por fusionauthUserId
+        API-->>FE: User data
+        FE-->>U: Dashboard con datos
+    else Credenciales inválidas
+        FA-->>FE: Error 401
+        FE-->>U: Muestra error
+    else Requiere MFA
+        FA-->>FE: mfaRequired: true, mfaToken
+        FE-->>U: Muestra form de código
+        U->>FE: Ingresa código MFA
+        FE->>FA: POST /api/two-factor/login
+        FA-->>FE: JWT + Refresh Token
+    end
 ```
 
----
+### 5.2 Flujo de Registro
 
-## 7. Flujo de Creación de Usuario
+```mermaid
+sequenceDiagram
+    participant U as Usuario
+    participant FE as Frontend
+    participant FA as FusionAuth
+    participant API as Backend
+    participant DB as MongoDB
 
-### Flujo Directo (API → Frontegg + MongoDB)
+    U->>FE: Formulario de registro
+    FE->>FA: POST /api/user/registration
+    FA->>FA: Crea User + Registration
+    FA-->>FE: User creado
 
+    alt Email verification requerido
+        FA->>U: Email con link de verificación
+        U->>FA: Click en link
+        FA->>FA: Marca email como verificado
+    end
+
+    FE->>API: POST /api/users (sync)
+    API->>DB: Crea User en MongoDB
+    API-->>FE: User creado
+
+    FE-->>U: Registro exitoso, ir a login
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  FLUJO DIRECTO - SIN WEBHOOKS                                                │
-│                                                                              │
-│  Admin crea usuario desde dashboard:                                         │
-│                                                                              │
-│  ┌────────────┐     ┌────────────┐     ┌────────────┐                       │
-│  │  Dashboard │────►│  API Call  │────►│  NestJS    │                       │
-│  │  (React)   │     │ POST /users│     │  Controller│                       │
-│  └────────────┘     └────────────┘     └────────────┘                       │
-│                                               │                              │
-│                                               ▼                              │
-│  ┌───────────────────────────────────────────────────────────────┐          │
-│  │  UsersService.create()                                         │          │
-│  │                                                                │          │
-│  │  1. Verificar email no existe en MongoDB                       │          │
-│  │     └── getUserByEmail(userModel, dto.email)                   │          │
-│  │                                                                │          │
-│  │  2. Crear usuario en Frontegg                                  │          │
-│  │     └── createFronteggUser({                                   │          │
-│  │           email: dto.email,                                    │          │
-│  │           name: `${dto.firstName} ${dto.lastName}`,            │          │
-│  │           tenantId: fronteggTenantId,                          │          │
-│  │         })                                                     │          │
-│  │     └── Frontegg devuelve: { id, email, verified, ... }        │          │
-│  │                                                                │          │
-│  │  3. Crear usuario en MongoDB                                   │          │
-│  │     └── createUserInDb(userModel, {                            │          │
-│  │           fronteggUserId: fronteggUser.id,                     │          │
-│  │           email: dto.email,                                    │          │
-│  │           firstName: dto.firstName,                            │          │
-│  │           ...                                                  │          │
-│  │         })                                                     │          │
-│  │                                                                │          │
-│  │  4. Retornar usuario creado                                    │          │
-│  │                                                                │          │
-│  └───────────────────────────────────────────────────────────────┘          │
-│                                                                              │
-│  VENTAJAS:                                                                   │
-│  • Transaccional: Si Frontegg falla, no creamos en MongoDB                   │
-│  • Sin latencia de webhooks                                                  │
-│  • Resultado inmediato                                                       │
-│  • Más simple de debuggear                                                   │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
+
+### 5.3 Flujo de Verificación de Token
+
+```mermaid
+sequenceDiagram
+    participant C as Cliente
+    participant G as FusionAuthGuard
+    participant JWKS as FusionAuth JWKS
+
+    C->>G: Request con Authorization: Bearer {token}
+    G->>G: Extraer token del header
+    G->>JWKS: GET /.well-known/jwks.json
+    JWKS-->>G: Public keys
+    G->>G: Verificar firma RS256
+    G->>G: Validar claims (exp, iss, aud)
+
+    alt Token válido
+        G->>G: Inyectar user en request
+        G-->>C: Continúa al controller
+    else Token inválido/expirado
+        G-->>C: 401 Unauthorized
+    end
 ```
 
 ---
 
-## 8. Sincronización Frontegg ↔ MongoDB
+## 6. Implementación por App
 
-### Estrategia: API Directa (No Webhooks)
+### 6.1 Tenant Dashboard (Next.js)
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  SINCRONIZACIÓN - FLUJO DIRECTO                                              │
-│                                                                              │
-│  OPERACIÓN          FRONTEGG               MONGODB                           │
-│  ─────────────────────────────────────────────────────────────────────────── │
-│                                                                              │
-│  CREATE USER        1. API: createFronteggUser()                             │
-│                     2. API: createUserInDb()                                 │
-│                     Resultado: Usuario en ambos sistemas                     │
-│                                                                              │
-│  UPDATE USER        1. API: updateFronteggUser() [name, metadata]            │
-│                     2. API: updateUser()         [todos los campos]          │
-│                     Resultado: Datos sync                                    │
-│                                                                              │
-│  DELETE USER        1. API: deleteFronteggUser()                             │
-│                     2. API: deleteUserFromDb()                               │
-│                     Resultado: Usuario eliminado de ambos                    │
-│                                                                              │
-│  LOGIN (OAuth)      Frontegg maneja internamente                             │
-│  CHANGE PASSWORD    Frontegg maneja internamente                             │
-│  MFA                Frontegg maneja internamente                             │
-│                                                                              │
-│  ─────────────────────────────────────────────────────────────────────────── │
-│                                                                              │
-│  DATOS QUE SE SINCRONIZAN:                                                   │
-│  • email, name → Frontegg + MongoDB                                          │
-│  • profilePictureUrl → Frontegg (se copia a MongoDB como imageUrl)           │
-│                                                                              │
-│  DATOS SOLO EN MONGODB:                                                      │
-│  • phoneNumber, idNumber, birthDate                                          │
-│  • organizationIds, preferences, legal                                       │
-│  • providerProfile                                                           │
-│                                                                              │
-│  DATOS SOLO EN FRONTEGG:                                                     │
-│  • password (hashed)                                                         │
-│  • OAuth connections                                                         │
-│  • MFA settings                                                              │
-│  • Session tokens                                                            │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 9. Apps Next.js (Dashboards + Webapp)
-
-### Estructura de Autenticación
+**Estructura de archivos:**
 
 ```
-apps/tenant/dashboard/
-├── src/
-│   ├── app/
-│   │   ├── layout.tsx              # FronteggAppProvider
-│   │   ├── (auth)/
-│   │   │   ├── sign-in/page.tsx    # useLoginWithRedirect
-│   │   │   ├── sign-up/page.tsx    # useLoginWithRedirect({ type: 'signup' })
-│   │   │   ├── sso-callback/       # OAuth callback
-│   │   │   └── verify/             # Email verification
-│   │   └── (dashboard)/            # Rutas protegidas
-│   ├── middleware.ts               # Verificación de token + tenant
-│   └── lib/
-│       ├── get-tenant.ts           # Resolver tenant desde headers
-│       └── get-current-user.ts     # Obtener user de API
+apps/tenant/dashboard/src/
+├── middleware.ts                    # Validación de auth + tenant
+├── app/
+│   ├── layout.tsx                   # Setup FusionAuth + TenantProvider
+│   ├── (auth)/
+│   │   ├── layout.tsx               # AuthSplitLayout
+│   │   ├── sign-in/page.tsx         # <SignInView />
+│   │   ├── sign-up/page.tsx         # <SignUpView />
+│   │   ├── verify/page.tsx          # <VerifyEmailView />
+│   │   └── sso-callback/page.tsx    # OAuth callback
+│   └── (dashboard)/
+│       └── layout.tsx               # getCurrentUser + CurrentUserProvider
+├── lib/
+│   ├── get-tenant.ts                # Resuelve tenant desde host
+│   └── get-current-user.ts          # Obtiene user autenticado
+├── context/
+│   └── CurrentUserContext.tsx       # Context de usuario
+└── hooks/
+    └── useCurrentUser.ts            # Hook para acceder a user
 ```
 
-### middleware.ts
+#### middleware.ts
 
 ```typescript
-// apps/tenant/dashboard/src/middleware.ts
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
-
+// Rutas públicas (sin auth)
 const publicRoutes = ['/sign-in', '/sign-up', '/sso-callback', '/verify'];
 
-function extractTenantSlug(host: string): string | null {
-  if (host.includes('localhost')) {
-    const parts = host.split('.');
-    if (parts.length >= 2 && parts[0] !== 'localhost') {
-      return parts[0];
-    }
-    return process.env.DEV_TENANT_SLUG || null;
-  }
-  const parts = host.split('.');
-  return parts.length >= 3 ? parts[0] : null;
-}
-
 export async function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
   const host = req.headers.get('host') || '';
-  const tenantSlug = extractTenantSlug(host);
+  const tenantSlug = extractTenantSlug(host); // demo.localhost → demo
 
-  // Public routes - allow without auth
-  if (publicRoutes.some(r => pathname.startsWith(r))) {
-    const response = NextResponse.next();
-    if (tenantSlug) response.headers.set('x-tenant-slug', tenantSlug);
-    return response;
+  // Permitir rutas públicas
+  if (publicRoutes.some(route => pathname.startsWith(route))) {
+    return NextResponse.next();
   }
 
-  // Get Frontegg access token from cookies
-  const accessToken =
-    req.cookies.get(`fe_access_token_${tenantSlug}`)?.value ||
-    req.cookies.get('fe_access_token')?.value;
+  // Buscar token en cookies
+  const token =
+    req.cookies.get(`fa_access_token_${tenantSlug}`)?.value ||
+    req.cookies.get('fa_access_token')?.value;
 
-  if (!accessToken) {
+  if (!token) {
     return NextResponse.redirect(new URL('/sign-in', req.url));
   }
 
-  // Inject headers for Server Components
+  // Verificar token (decodificar + validar expiry)
+  const { valid, userId, tenantId } = await verifyToken(token);
+
+  if (!valid) {
+    return NextResponse.redirect(new URL('/sign-in', req.url));
+  }
+
+  // Inyectar headers para Server Components
   const response = NextResponse.next();
-  if (tenantSlug) response.headers.set('x-tenant-slug', tenantSlug);
+  response.headers.set('x-tenant-slug', tenantSlug);
+  response.headers.set('x-fusionauth-user-id', userId);
+  response.headers.set('x-fusionauth-tenant-id', tenantId);
+
   return response;
 }
 ```
 
-### layout.tsx
+#### Root Layout
 
 ```typescript
-// apps/tenant/dashboard/src/app/layout.tsx
-import { FronteggAppProvider } from '@frontegg/nextjs/app';
-import { getTenantFromHeaders } from '../lib/get-tenant';
-
+// app/layout.tsx
 export default async function RootLayout({ children }) {
   const { tenant } = await getTenantFromHeaders();
 
-  const fronteggBaseUrl = tenant?.fronteggConfig?.baseUrl || process.env.FRONTEGG_BASE_URL;
-  const fronteggClientId = tenant?.fronteggConfig?.clientId || process.env.FRONTEGG_CLIENT_ID;
+  // Config de FusionAuth del tenant
+  const fusionauthBaseUrl = tenant?.fusionauthConfig?.baseUrl ||
+    process.env.FUSIONAUTH_BASE_URL;
+  const fusionauthApplicationId = tenant?.fusionauthConfig?.applicationId ||
+    process.env.FUSIONAUTH_APPLICATION_ID;
 
   return (
-    <html lang="es">
+    <html>
       <body>
-        <FronteggAppProvider
-          hostedLoginBox={false}
-          authOptions={{
-            baseUrl: fronteggBaseUrl,
-            clientId: fronteggClientId,
-            keepSessionAlive: true,
-          }}
+        <FusionAuthProvider
+          baseUrl={fusionauthBaseUrl}
+          applicationId={fusionauthApplicationId}
         >
-          {children}
-        </FronteggAppProvider>
+          <TenantProvider tenant={tenant}>
+            <ThemeProvider>
+              {children}
+            </ThemeProvider>
+          </TenantProvider>
+        </FusionAuthProvider>
       </body>
     </html>
   );
 }
 ```
 
----
-
-## 10. Apps NestJS (APIs)
-
-### Estructura de Autenticación
-
-```
-apps/tenant/server/
-├── src/
-│   ├── app/
-│   │   └── app.module.ts           # FronteggAuthGuard global
-│   └── users/
-│       ├── users.controller.ts     # @RequireTenant, @CurrentUser
-│       └── users.service.ts        # Integración Frontegg API
-```
-
-### FronteggAuthGuard
+#### getCurrentUser
 
 ```typescript
-// packages/auth/src/guards/frontegg-auth.guard.ts
-import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
-import * as jwt from 'jsonwebtoken';
-import * as jwksClient from 'jwks-rsa';
+// lib/get-current-user.ts
+export async function getCurrentUser(tenant: Tenant): Promise<GetCurrentUserResult> {
+  const cookieStore = await cookies();
+  const accessToken =
+    cookieStore.get(`fa_access_token_${tenant.slug}`)?.value ||
+    cookieStore.get('fa_access_token')?.value;
 
-@Injectable()
-export class FronteggAuthGuard implements CanActivate {
-  private jwksClient: jwksClient.JwksClient;
-  private baseUrl: string;
-
-  constructor(private reflector: Reflector) {
-    this.baseUrl = process.env.FRONTEGG_BASE_URL || '';
-    this.jwksClient = jwksClient({
-      jwksUri: `${this.baseUrl}/.well-known/jwks.json`,
-      cache: true,
-      cacheMaxAge: 86400000, // 24 hours
-    });
+  if (!accessToken) {
+    return { user: null, error: { type: 'UNAUTHORIZED' } };
   }
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
-    // Check if public
-    const isPublic = this.reflector.getAllAndOverride('isPublic', [
-      context.getHandler(),
-      context.getClass(),
-    ]);
-    if (isPublic) return true;
+  // Decodificar JWT
+  const payload = decodeJwtPayload(accessToken);
+  const userId = payload.sub;
+  const tenantId = payload.tenantId;
 
-    const request = context.switchToHttp().getRequest();
-    const authHeader = request.headers.authorization;
-
-    if (!authHeader?.startsWith('Bearer ')) {
-      throw new UnauthorizedException('Missing authorization header');
-    }
-
-    const token = authHeader.substring(7);
-    const decoded = await this.verifyToken(token);
-
-    // Inject user info into request
-    request.user = {
-      fronteggUserId: decoded.sub,
-      email: decoded.email,
-      tenantId: decoded.tenantId,
-      roles: decoded.roles || [],
-      permissions: decoded.permissions || [],
+  // VERIFICACIÓN CRÍTICA: membership
+  if (tenantId !== tenant.fusionauthTenantId) {
+    return {
+      user: null,
+      error: {
+        type: 'FORBIDDEN',
+        message: 'No eres miembro de esta organización'
+      }
     };
-
-    request.auth = {
-      userId: decoded.sub,
-      tenantId: decoded.tenantId,
-      roles: decoded.roles || [],
-      permissions: decoded.permissions || [],
-    };
-
-    // Check tenant requirement
-    const requireTenant = this.reflector.getAllAndOverride('requireTenant', [
-      context.getHandler(),
-      context.getClass(),
-    ]);
-    if (requireTenant && !decoded.tenantId) {
-      throw new ForbiddenException('Tenant context required');
-    }
-
-    return true;
   }
 
-  private async verifyToken(token: string): Promise<FronteggJwtPayload> {
-    return new Promise((resolve, reject) => {
-      const getKey = (header: jwt.JwtHeader, callback: jwt.SigningKeyCallback) => {
-        this.jwksClient.getSigningKey(header.kid, (err, key) => {
-          if (err) return callback(err);
-          callback(null, key?.getPublicKey());
-        });
-      };
+  // Obtener user de MongoDB via API
+  const response = await fetch(`${TENANT_API_URL}/api/users/me`, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'x-tenant-slug': tenant.slug,
+    },
+  });
 
-      jwt.verify(token, getKey, { algorithms: ['RS256'], issuer: this.baseUrl },
-        (err, decoded) => err ? reject(err) : resolve(decoded as FronteggJwtPayload)
-      );
+  if (!response.ok) {
+    if (response.status === 404) {
+      return { user: null, error: { type: 'USER_NOT_FOUND' } };
+    }
+    return { user: null, error: { type: 'INTERNAL' } };
+  }
+
+  const data = await response.json();
+  return { user: data.data, error: null };
+}
+```
+
+### 6.2 Tenant Webapp (Next.js)
+
+Estructura similar a Dashboard pero con vistas para clientes (socios):
+- Página de reservas
+- Perfil personal
+- Historial
+
+Reutiliza los mismos componentes de auth (`SignInView`, etc.).
+
+### 6.3 Admin Dashboard (Next.js)
+
+```
+apps/admin/dashboard/src/
+├── middleware.ts                    # Auth para global users
+├── app/
+│   ├── layout.tsx                   # FusionAuth (Tenant: serveflow-admin)
+│   └── (dashboard)/
+│       ├── tenants/                 # Gestión de tenants
+│       ├── users/                   # Gestión de global users
+│       └── billing/                 # Facturación
+```
+
+El admin usa un FusionAuth Tenant separado (`serveflow-admin`) con su propia Application.
+
+### 6.4 Tenant Server (NestJS)
+
+```
+apps/tenant/server/src/
+├── main.ts                          # Bootstrap NestJS
+├── app.module.ts                    # FusionAuthGuard global
+└── users/
+    ├── users.controller.ts          # Endpoints de usuarios
+    └── users.service.ts             # Lógica de negocio
+```
+
+#### Configuración del Guard
+
+```typescript
+// app.module.ts
+import { FusionAuthGuard } from '@serveflow/auth/server';
+
+@Module({
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: FusionAuthGuard, // Guard global
+    },
+  ],
+})
+export class AppModule {}
+```
+
+#### Ejemplo de Controller
+
+```typescript
+// users/users.controller.ts
+import {
+  CurrentUser,
+  CurrentTenantId,
+  Roles,
+  Public
+} from '@serveflow/auth/server';
+
+@Controller('users')
+@RequireTenant()
+export class UsersController {
+  @Public()
+  @Get('health')
+  health() {
+    return { status: 'ok' };
+  }
+
+  @Get('me')
+  async getMe(
+    @CurrentUser() user: AuthenticatedUser,
+    @CurrentTenantId() tenantId: string
+  ) {
+    return this.usersService.findByFusionauthId(user.fusionauthUserId);
+  }
+
+  @Roles('admin', 'owner')
+  @Get()
+  async list(@CurrentTenantId() tenantId: string) {
+    return this.usersService.list(tenantId);
+  }
+
+  @Roles('admin', 'owner')
+  @Post()
+  async create(
+    @Body() dto: CreateUserDto,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.usersService.create(dto, user.fusionauthUserId);
+  }
+}
+```
+
+### 6.5 AI Assistant (LangGraph)
+
+El AI Assistant es un orquestador multi-agente que maneja conversaciones con usuarios a través de WhatsApp y otros canales.
+
+**¿Qué es LangGraph?**
+
+LangGraph es un framework para construir aplicaciones con LLMs como grafos de estados. Permite:
+- Flujos multi-agente con supervisor
+- Estado persistente entre turnos de conversación
+- Human-in-the-loop cuando se necesita confirmación
+
+```mermaid
+graph TB
+    subgraph "AI Assistant"
+        SUP[Supervisor Agent]
+        BA[Booking Agent]
+        IA[Info Agent]
+        SA[Support Agent]
+    end
+
+    subgraph "Contexto de Entrada"
+        WA[WhatsApp Webhook]
+        DB[Dashboard Chat]
+    end
+
+    subgraph "Ejecución"
+        MCP[MCP Server]
+        API[Tenant API]
+    end
+
+    WA -->|tenantId + userId| SUP
+    DB -->|tenantId + userId| SUP
+
+    SUP --> BA
+    SUP --> IA
+    SUP --> SA
+
+    BA --> MCP
+    IA --> MCP
+    SA --> MCP
+
+    MCP --> API
+```
+
+**Estructura de archivos:**
+
+```
+apps/tenant/ai-assistant/src/
+├── index.ts                         # Entry point
+├── graph/
+│   ├── supervisor.ts                # Supervisor que enruta a agentes
+│   ├── agents/
+│   │   ├── booking.ts               # Agente de reservas
+│   │   ├── info.ts                  # Agente de información
+│   │   └── support.ts               # Agente de soporte
+│   └── state.ts                     # Estado del grafo
+├── config/
+│   └── loader.ts                    # Carga ai_config del tenant
+└── tools/
+    └── mcp-client.ts                # Cliente MCP para ejecutar tools
+```
+
+**Contexto de Autenticación:**
+
+El AI Assistant **NO autentica usuarios directamente**. Recibe el contexto de autenticación del caller:
+
+```typescript
+// Estado del grafo LangGraph
+interface AssistantState {
+  // Contexto de tenant (obligatorio)
+  tenantId: string;
+  tenantSlug: string;
+
+  // Contexto de usuario (viene del caller)
+  userId?: string;              // FusionAuth userId (si autenticado)
+  userPhone?: string;           // WhatsApp phone (si no autenticado)
+  userRoles?: string[];         // Roles del JWT
+
+  // Configuración del tenant
+  aiConfig: AIConfig;           // Cargado de db_tenant_{slug}.ai_config
+
+  // Estado de conversación
+  messages: Message[];
+  currentAgent: string;
+}
+```
+
+**Flujo de entrada desde WhatsApp:**
+
+```typescript
+// Webhook en tenant/api (controller)
+@Post('whatsapp/webhook')
+async handleWhatsappWebhook(
+  @CurrentTenantId() tenantId: string,
+  @Body() payload: WhatsAppPayload
+) {
+  // El tenant ya está resuelto por el subdomain
+  const { from, message } = payload;
+
+  // Buscar usuario por teléfono (puede no existir)
+  const user = await this.usersService.findByPhone(from);
+
+  // Invocar AI Assistant con contexto
+  const response = await this.aiAssistant.invoke({
+    tenantId,
+    tenantSlug: this.tenant.slug,
+    userId: user?.fusionauthUserId,     // undefined si no existe
+    userPhone: from,
+    userRoles: user?.roles || ['guest'], // guest si no registrado
+    message: message.text,
+  });
+
+  return response;
+}
+```
+
+**Carga de ai_config:**
+
+```typescript
+// config/loader.ts
+export async function loadAIConfig(tenantSlug: string): Promise<AIConfig> {
+  const db = await getTenantDatabase(tenantSlug);
+  const config = await db.collection('ai_config').findOne({});
+
+  return config || DEFAULT_AI_CONFIG;
+}
+
+// El supervisor usa la config para personalizar comportamiento
+const supervisor = new SupervisorAgent({
+  aiConfig,
+  systemPrompt: aiConfig.identity.systemPrompt,
+  personality: aiConfig.identity.personality,
+  enabledAgents: Object.entries(aiConfig.agents)
+    .filter(([_, config]) => config.enabled)
+    .map(([name]) => name),
+});
+```
+
+**Autorización en Tools:**
+
+Cuando un agente necesita ejecutar una acción (ej: crear reserva), usa el MCP Server que a su vez llama al Tenant API con el contexto de autorización:
+
+```typescript
+// tools/mcp-client.ts
+export class MCPClient {
+  async callTool(
+    toolName: string,
+    params: Record<string, unknown>,
+    context: AssistantState
+  ) {
+    // El MCP Server recibe el contexto y lo propaga al API
+    return await this.mcp.callTool(toolName, {
+      ...params,
+      __context: {
+        tenantId: context.tenantId,
+        userId: context.userId,
+        userRoles: context.userRoles,
+      },
     });
   }
 }
 ```
 
-### Decorators
+### 6.6 MCP Server
+
+El MCP Server expone tools para que el AI Assistant (u otros clientes MCP como Claude Desktop) puedan ejecutar acciones en el sistema.
+
+**¿Qué es MCP?**
+
+Model Context Protocol (MCP) es un protocolo abierto de Anthropic que estandariza cómo las aplicaciones de IA acceden a datos y herramientas externas. Es como un "USB-C para AI" - una interfaz universal.
+
+```mermaid
+graph LR
+    subgraph "Clientes MCP"
+        AI[AI Assistant]
+        CD[Claude Desktop]
+        OT[Otros Clientes]
+    end
+
+    subgraph "MCP Server"
+        TS[Tool Server]
+        T1[booking:create]
+        T2[booking:list]
+        T3[availability:check]
+        T4[resource:list]
+        T5[user:lookup]
+    end
+
+    subgraph "Backend"
+        API[Tenant API]
+        DB[(MongoDB)]
+    end
+
+    AI --> TS
+    CD --> TS
+    OT --> TS
+
+    TS --> T1
+    TS --> T2
+    TS --> T3
+    TS --> T4
+    TS --> T5
+
+    T1 --> API
+    T2 --> API
+    T3 --> API
+    T4 --> API
+    T5 --> API
+
+    API --> DB
+```
+
+**Estructura de archivos:**
+
+```
+apps/tenant/mcp-server/src/
+├── index.ts                         # Entry point MCP Server
+├── server.ts                        # McpServer instance
+├── tools/
+│   ├── booking.ts                   # Tools de reservas
+│   ├── availability.ts              # Tools de disponibilidad
+│   ├── resource.ts                  # Tools de recursos
+│   └── user.ts                      # Tools de usuarios
+├── context/
+│   └── tenant-context.ts            # Resolución de tenant
+└── api/
+    └── client.ts                    # Cliente HTTP para Tenant API
+```
+
+**Definición de Tools:**
 
 ```typescript
-// packages/auth/src/decorators/auth.decorator.ts
-import { SetMetadata, createParamDecorator, ExecutionContext } from '@nestjs/common';
+// server.ts
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 
-export const IS_PUBLIC_KEY = 'isPublic';
-export const REQUIRE_TENANT_KEY = 'requireTenant';
-export const ROLES_KEY = 'roles';
-export const PERMISSIONS_KEY = 'permissions';
+const server = new McpServer({
+  name: "serveflow-tenant",
+  version: "1.0.0",
+  capabilities: {
+    tools: {},
+  },
+});
 
-// @Public() - Skip authentication
-export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
+// Tool: Verificar disponibilidad
+server.tool(
+  "availability:check",
+  "Verifica la disponibilidad de un recurso en una fecha y hora específica",
+  {
+    resourceId: z.string().describe("ID del recurso (pista, sala, etc.)"),
+    date: z.string().describe("Fecha en formato YYYY-MM-DD"),
+    startTime: z.string().describe("Hora inicio en formato HH:mm"),
+    duration: z.number().describe("Duración en minutos"),
+  },
+  async ({ resourceId, date, startTime, duration }, extra) => {
+    // Extraer contexto del caller
+    const context = extra.context as TenantContext;
 
-// @RequireTenant() - Require tenant context
-export const RequireTenant = () => SetMetadata(REQUIRE_TENANT_KEY, true);
+    const result = await tenantApi.checkAvailability({
+      tenantSlug: context.tenantSlug,
+      resourceId,
+      date,
+      startTime,
+      duration,
+    });
 
-// @Roles('Admin', 'Owner') - Require specific roles
-export const Roles = (...roles: string[]) => SetMetadata(ROLES_KEY, roles);
-
-// @Permissions('users.read') - Require specific permissions
-export const Permissions = (...perms: string[]) => SetMetadata(PERMISSIONS_KEY, perms);
-
-// @CurrentUser() - Get authenticated user
-export const CurrentUser = createParamDecorator(
-  (_data: unknown, ctx: ExecutionContext) => {
-    const request = ctx.switchToHttp().getRequest();
-    return request.user;
+    return {
+      content: [{ type: "text", text: JSON.stringify(result) }],
+    };
   }
 );
 
-// @CurrentTenantId() - Get current tenant ID
-export const CurrentTenantId = createParamDecorator(
-  (_data: unknown, ctx: ExecutionContext) => {
-    const request = ctx.switchToHttp().getRequest();
-    return request.auth?.tenantId;
+// Tool: Crear reserva
+server.tool(
+  "booking:create",
+  "Crea una nueva reserva para un usuario",
+  {
+    resourceId: z.string(),
+    date: z.string(),
+    startTime: z.string(),
+    duration: z.number(),
+    userId: z.string().optional().describe("ID del usuario (si autenticado)"),
+    guestName: z.string().optional().describe("Nombre del invitado (si no autenticado)"),
+    guestPhone: z.string().optional().describe("Teléfono del invitado"),
+  },
+  async (params, extra) => {
+    const context = extra.context as TenantContext;
+
+    // Llamar al API con autenticación service-to-service
+    const result = await tenantApi.createBooking({
+      ...params,
+      tenantSlug: context.tenantSlug,
+      createdBy: context.userId || 'ai-assistant',
+    }, {
+      headers: {
+        'x-service-auth': process.env.SERVICE_TOKEN,
+        'x-tenant-slug': context.tenantSlug,
+        'x-acting-user-id': context.userId,
+      },
+    });
+
+    return {
+      content: [{ type: "text", text: JSON.stringify(result) }],
+    };
   }
 );
 ```
 
----
+**Contexto de Tenant:**
 
-## 11. Decisiones y Trade-offs
-
-### Decisión 1: Frontegg en vez de Clerk
-
-| Factor | Clerk | Frontegg |
-|--------|-------|----------|
-| Aislamiento de usuarios | ❌ Pool compartido | ✅ Por tenant |
-| Mismo email multi-tenant | ❌ | ✅ |
-| White-label | ⚠️ | ✅ |
-| Admin Portal | ❌ | ✅ |
-
-**Decisión:** Frontegg permite el modelo white-label donde cada tenant tiene usuarios completamente aislados.
-
-### Decisión 2: API Directa en vez de Webhooks
-
-| Factor | Webhooks | API Directa |
-|--------|----------|-------------|
-| Latencia | Alta (async) | Baja (sync) |
-| Complejidad | Alta | Baja |
-| Debugging | Difícil | Fácil |
-| Transaccionalidad | No | Sí |
-
-**Decisión:** Flujo directo API → Frontegg + MongoDB en el mismo request.
-
-### Decisión 3: JWT con JWKS Verification
-
-| Factor | Descripción |
-|--------|-------------|
-| Algoritmo | RS256 (asimétrico) |
-| Verificación | Via JWKS endpoint |
-| Caché | 24 horas |
-| Claims | sub, email, tenantId, roles, permissions |
-
-**Decisión:** Verificación de tokens via JWKS para máxima seguridad sin compartir secretos.
-
-### Decisión 4: fronteggConfig por Tenant
-
-Cada tenant puede tener su propio entorno de Frontegg:
+El MCP Server recibe el contexto del tenant en cada llamada:
 
 ```typescript
-interface TenantMVP {
-  fronteggTenantId: string;
-  fronteggConfig?: {
-    baseUrl: string;   // https://tenant-abc.frontegg.com
-    clientId: string;  // Specific client for this tenant
+// context/tenant-context.ts
+export interface TenantContext {
+  tenantId: string;
+  tenantSlug: string;
+  userId?: string;           // Usuario que inició la acción
+  userRoles?: string[];      // Roles del usuario
+  source: 'ai-assistant' | 'claude-desktop' | 'api';
+}
+
+// El contexto se pasa en cada tool call
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const context: TenantContext = {
+    tenantSlug: request.params.__context?.tenantSlug,
+    tenantId: request.params.__context?.tenantId,
+    userId: request.params.__context?.userId,
+    userRoles: request.params.__context?.userRoles,
+    source: request.params.__context?.source || 'api',
+  };
+
+  // Validar que tenemos tenant
+  if (!context.tenantSlug) {
+    throw new Error('Tenant context required');
+  }
+
+  return await executeToolWithContext(request.params.name, request.params.arguments, context);
+});
+```
+
+**Autenticación Service-to-Service:**
+
+El MCP Server usa autenticación de servicio para llamar al Tenant API:
+
+```typescript
+// api/client.ts
+export class TenantApiClient {
+  private serviceToken: string;
+
+  constructor() {
+    // Token de servicio compartido entre MCP Server y Tenant API
+    this.serviceToken = process.env.SERVICE_AUTH_TOKEN!;
+  }
+
+  async request(
+    endpoint: string,
+    method: string,
+    data?: unknown,
+    context?: TenantContext
+  ) {
+    const response = await fetch(`${TENANT_API_URL}${endpoint}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        // Autenticación de servicio
+        'x-service-auth': this.serviceToken,
+        // Contexto de tenant
+        'x-tenant-slug': context?.tenantSlug || '',
+        // Usuario que actúa (para auditoría)
+        'x-acting-user-id': context?.userId || 'system',
+        'x-acting-user-roles': context?.userRoles?.join(',') || '',
+      },
+      body: data ? JSON.stringify(data) : undefined,
+    });
+
+    return response.json();
+  }
+}
+```
+
+**Autorización con Cerbos:**
+
+El Tenant API valida los permisos usando Cerbos antes de ejecutar la acción:
+
+```typescript
+// En tenant/api - booking.service.ts
+async createBooking(dto: CreateBookingDto, actingUser: ActingUser) {
+  // Verificar permisos con Cerbos
+  const allowed = await this.cerbos.isAllowed({
+    principal: {
+      id: actingUser.userId || 'ai-assistant',
+      roles: actingUser.roles || ['service'],
+      attributes: {
+        isService: !actingUser.userId,
+      },
+    },
+    resource: {
+      kind: 'booking',
+      id: 'new',
+      attributes: {
+        resourceId: dto.resourceId,
+      },
+    },
+    action: 'create',
+  });
+
+  if (!allowed) {
+    throw new ForbiddenException('No permission to create booking');
+  }
+
+  // Crear la reserva...
+}
+```
+
+**Diagrama de Flujo Completo:**
+
+```mermaid
+sequenceDiagram
+    participant WA as WhatsApp
+    participant API as Tenant API
+    participant AI as AI Assistant
+    participant MCP as MCP Server
+    participant CB as Cerbos
+    participant DB as MongoDB
+
+    WA->>API: POST /api/whatsapp/webhook
+    Note over API: Resuelve tenant por subdomain
+    API->>AI: invoke({ tenantId, userId?, message })
+
+    AI->>AI: Supervisor analiza mensaje
+    AI->>AI: Booking Agent seleccionado
+
+    AI->>MCP: callTool("availability:check", { ... })
+    MCP->>API: GET /api/availability (+ service auth)
+    API->>DB: Query disponibilidad
+    DB-->>API: Slots disponibles
+    API-->>MCP: { available: true, slots: [...] }
+    MCP-->>AI: Resultado
+
+    AI->>AI: Confirma con usuario
+
+    AI->>MCP: callTool("booking:create", { ... })
+    MCP->>API: POST /api/bookings (+ service auth + acting user)
+    API->>CB: isAllowed(principal, resource, action)
+    CB-->>API: ALLOW
+    API->>DB: Insert booking
+    DB-->>API: Booking created
+    API-->>MCP: { success: true, booking: {...} }
+    MCP-->>AI: Resultado
+
+    AI-->>API: Respuesta final
+    API-->>WA: Mensaje de confirmación
+```
+
+---
+
+## 7. Package @serveflow/auth
+
+### Estructura
+
+```
+packages/auth/src/
+├── index.ts                         # Exports client-safe
+├── server.ts                        # Exports NestJS
+├── types.ts                         # Tipos compartidos
+├── guards/
+│   └── fusionauth-auth.guard.ts     # Guard NestJS
+├── decorators/
+│   └── auth.decorator.ts            # @Public, @Roles, etc.
+├── fusionauth/
+│   ├── client.ts                    # Cliente FusionAuth
+│   ├── users.ts                     # CRUD usuarios
+│   └── tenants.ts                   # CRUD tenants
+└── lib/
+    └── jwt.ts                       # Utilidades JWT
+```
+
+### Tipos Principales
+
+```typescript
+// types.ts
+export interface FusionAuthUser {
+  id: string;
+  sub: string;
+  email: string;
+  name?: string;
+  tenantId: string;
+  roles: string[];
+  permissions: string[];
+}
+
+export interface AuthenticatedUser {
+  fusionauthUserId: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  imageUrl?: string;
+  tenantId: string;
+  roles: string[];
+  permissions: string[];
+}
+
+export interface AuthRequest extends Request {
+  user: AuthenticatedUser;
+  auth: {
+    userId: string;
+    tenantId: string;
+    roles: string[];
+    permissions: string[];
   };
 }
 ```
 
-**Decisión:** Permite white-labeling completo donde cada tenant tiene su propia URL de login.
+### Guard
 
----
+```typescript
+// guards/fusionauth-auth.guard.ts
+@Injectable()
+export class FusionAuthGuard implements CanActivate {
+  private jwksClient: JwksClient;
 
-## Variables de Entorno
+  constructor(private reflector: Reflector) {
+    this.jwksClient = jwksClient({
+      jwksUri: `${process.env.FUSIONAUTH_BASE_URL}/.well-known/jwks.json`,
+      cache: true,
+      cacheMaxAge: 86400000, // 24h
+    });
+  }
 
-```env
-# Frontegg (valores por defecto / desarrollo)
-FRONTEGG_BASE_URL=https://app-xxx.frontegg.com
-FRONTEGG_CLIENT_ID=your-client-id
-FRONTEGG_API_KEY=your-api-key
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    // 1. Check @Public()
+    if (this.isPublic(context)) return true;
 
-# Desarrollo local
-DEV_TENANT_SLUG=demo
+    // 2. Extract token
+    const token = this.extractToken(context);
+    if (!token) throw new UnauthorizedException();
 
-# API URLs
-TENANT_API_URL=http://localhost:3001
+    // 3. Verify JWT with JWKS
+    const payload = await this.verifyToken(token);
+
+    // 4. Inject user into request
+    this.injectUser(context, payload);
+
+    // 5. Check @Roles()
+    this.checkRoles(context, payload);
+
+    // 6. Check @Permissions()
+    this.checkPermissions(context, payload);
+
+    return true;
+  }
+
+  private async verifyToken(token: string): Promise<FusionAuthJwtPayload> {
+    return new Promise((resolve, reject) => {
+      jwt.verify(token, this.getKey, { algorithms: ['RS256'] }, (err, decoded) => {
+        if (err) reject(err);
+        resolve(decoded as FusionAuthJwtPayload);
+      });
+    });
+  }
+}
+```
+
+### Decoradores
+
+```typescript
+// decorators/auth.decorator.ts
+
+// Marcar endpoint como público
+export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
+
+// Requerir roles (OR)
+export const Roles = (...roles: string[]) => SetMetadata(ROLES_KEY, roles);
+
+// Requerir permisos (OR)
+export const Permissions = (...perms: string[]) => SetMetadata(PERMISSIONS_KEY, perms);
+
+// Requerir tenant context
+export const RequireTenant = () => SetMetadata(REQUIRE_TENANT_KEY, true);
+
+// Inyectar user en parámetro
+export const CurrentUser = createParamDecorator(
+  (_: unknown, ctx: ExecutionContext): AuthenticatedUser => {
+    const request = ctx.switchToHttp().getRequest<AuthRequest>();
+    return request.user;
+  }
+);
+
+// Inyectar tenant ID
+export const CurrentTenantId = createParamDecorator(
+  (_: unknown, ctx: ExecutionContext): string => {
+    const request = ctx.switchToHttp().getRequest<AuthRequest>();
+    return request.auth.tenantId;
+  }
+);
+```
+
+### Cliente FusionAuth (Backend-to-Backend)
+
+```typescript
+// fusionauth/client.ts
+export async function getApiKey(): Promise<string> {
+  return process.env.FUSIONAUTH_API_KEY!;
+}
+
+export async function fusionauthFetch<T>(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const apiKey = await getApiKey();
+  const baseUrl = process.env.FUSIONAUTH_BASE_URL;
+
+  const response = await fetch(`${baseUrl}${endpoint}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': apiKey,
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`FusionAuth API error: ${response.status}`);
+  }
+
+  return response.json();
+}
+```
+
+### CRUD de Usuarios
+
+```typescript
+// fusionauth/users.ts
+export async function createFusionAuthUser(input: CreateUserInput) {
+  return fusionauthFetch('/api/user/registration', {
+    method: 'POST',
+    body: JSON.stringify({
+      user: {
+        email: input.email,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        password: input.password,
+      },
+      registration: {
+        applicationId: input.applicationId,
+        roles: input.roles || ['member'],
+      },
+    }),
+  });
+}
+
+export async function getFusionAuthUser(userId: string) {
+  return fusionauthFetch(`/api/user/${userId}`);
+}
+
+export async function updateFusionAuthUser(userId: string, input: UpdateUserInput) {
+  return fusionauthFetch(`/api/user/${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ user: input }),
+  });
+}
+
+export async function deleteFusionAuthUser(userId: string) {
+  return fusionauthFetch(`/api/user/${userId}`, {
+    method: 'DELETE',
+  });
+}
 ```
 
 ---
 
-## Resumen de Packages
+## 8. Integración con Cerbos
 
-| Package | Exports | Uso |
-|---------|---------|-----|
-| `@serveflow/auth` | Types, Frontegg API functions | Client-safe |
-| `@serveflow/auth/server` | FronteggAuthGuard, Decorators | NestJS only |
-| `@serveflow/core` | Zod schemas, types | Everywhere |
-| `@serveflow/db` | Mongoose schemas, operations | Server only |
-| `@serveflow/tenants` | TenantMiddleware, resolvers | Server only |
+### ¿Qué es Cerbos?
+
+Cerbos es un **Policy Decision Point (PDP)** - evalúa si un usuario puede realizar una acción sobre un recurso.
+
+```mermaid
+graph LR
+    subgraph "Tu App"
+        API[API NestJS]
+        G[Guard]
+    end
+
+    subgraph "Identity"
+        FA[FusionAuth]
+    end
+
+    subgraph "Authorization"
+        CB[Cerbos]
+        PO[Policies<br/>YAML files]
+    end
+
+    API --> G
+    G -->|1. Valida JWT| FA
+    G -->|2. Check permission| CB
+    CB --> PO
+    CB -->|3. ALLOW/DENY| G
+```
+
+### Flujo de Autorización
+
+```mermaid
+sequenceDiagram
+    participant C as Cliente
+    participant G as Guards
+    participant FA as FusionAuth
+    participant CB as Cerbos
+
+    C->>G: DELETE /api/bookings/123
+    G->>FA: Verificar JWT
+    FA-->>G: Válido (user: juan, roles: [member])
+
+    G->>CB: checkResource({<br/>  principal: { id: juan, roles: [member] },<br/>  resource: { kind: booking, id: 123 },<br/>  action: delete<br/>})
+
+    alt Tiene permiso
+        CB-->>G: EFFECT_ALLOW
+        G-->>C: 200 OK (booking deleted)
+    else No tiene permiso
+        CB-->>G: EFFECT_DENY
+        G-->>C: 403 Forbidden
+    end
+```
+
+### Principal (de FusionAuth a Cerbos)
+
+```typescript
+// El JWT de FusionAuth se mapea a Cerbos Principal
+function jwtToCerbosPrincipal(jwt: FusionAuthJWT): CerbosPrincipal {
+  return {
+    id: jwt.sub,              // User ID
+    roles: jwt.roles,         // ['admin', 'staff']
+    attr: {
+      tenantId: jwt.tenantId,
+      organizationIds: jwt.organizationIds,
+      email: jwt.email,
+    },
+  };
+}
+```
+
+### Guard con Cerbos
+
+```typescript
+// Combinar FusionAuth + Cerbos
+@Injectable()
+export class CerbosGuard implements CanActivate {
+  constructor(
+    private cerbosService: CerbosService,
+    private reflector: Reflector
+  ) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const request = context.switchToHttp().getRequest<AuthRequest>();
+    const user = request.user; // Ya inyectado por FusionAuthGuard
+
+    const permissionCheck = this.reflector.get<PermissionCheck>(
+      PERMISSION_KEY,
+      context.getHandler()
+    );
+
+    if (!permissionCheck) return true;
+
+    const allowed = await this.cerbosService.isAllowed(
+      {
+        principal: {
+          id: user.fusionauthUserId,
+          roles: user.roles,
+          attr: {
+            tenantId: user.tenantId,
+            organizationIds: user.organizationIds,
+          },
+        },
+      },
+      {
+        kind: permissionCheck.resource,
+        id: request.params[permissionCheck.resourceIdParam] || 'new',
+      },
+      permissionCheck.action
+    );
+
+    if (!allowed) {
+      throw new ForbiddenException('Permission denied');
+    }
+
+    return true;
+  }
+}
+```
+
+Ver **03-PERMISOS.md** para documentación completa de Cerbos.
+
+---
+
+## 9. Configuración y Variables de Entorno
+
+### Variables Requeridas
+
+```bash
+# ═══════════════════════════════════════════════════════════════
+# FusionAuth
+# ═══════════════════════════════════════════════════════════════
+FUSIONAUTH_BASE_URL=https://auth.serveflow.app
+FUSIONAUTH_API_KEY=your-api-key
+FUSIONAUTH_APPLICATION_ID=default-app-uuid
+FUSIONAUTH_TENANT_ID=default-tenant-uuid
+
+# Para frontend (públicas)
+NEXT_PUBLIC_FUSIONAUTH_BASE_URL=https://auth.serveflow.app
+NEXT_PUBLIC_FUSIONAUTH_APPLICATION_ID=default-app-uuid
+
+# ═══════════════════════════════════════════════════════════════
+# Cerbos
+# ═══════════════════════════════════════════════════════════════
+CERBOS_URL=localhost:3593
+
+# ═══════════════════════════════════════════════════════════════
+# MongoDB
+# ═══════════════════════════════════════════════════════════════
+MONGODB_URI=mongodb+srv://...
+MONGODB_SYSTEM_DB=db_serveflow_sys
+
+# ═══════════════════════════════════════════════════════════════
+# URLs de servicios
+# ═══════════════════════════════════════════════════════════════
+TENANT_API_URL=http://localhost:3001
+ADMIN_API_URL=http://localhost:4001
+
+# ═══════════════════════════════════════════════════════════════
+# Dominio base
+# ═══════════════════════════════════════════════════════════════
+NEXT_PUBLIC_BASE_DOMAIN=serveflow.app
+```
+
+### Configuración por Tenant
+
+Cada tenant puede tener configuración custom de FusionAuth en MongoDB:
+
+```typescript
+// En db_serveflow_sys.tenants
+{
+  slug: "enterprise-client",
+  fusionauthTenantId: "uuid-of-dedicated-tenant",
+  fusionauthConfig: {
+    baseUrl: "https://enterprise.fusionauth.io",  // Instancia dedicada
+    applicationId: "uuid-of-their-app"
+  }
+}
+```
+
+---
+
+## 10. Decisiones Tomadas
+
+| Decisión | Opción Elegida | Alternativas | Justificación |
+|----------|----------------|--------------|---------------|
+| **Proveedor de identidad** | FusionAuth | Auth0, Cognito, Clerk | Multi-tenant nativo, self-hosted option, Login API para UI custom |
+| **Modo de auth** | Login API | OAuth2 hosted | Necesitamos UI 100% custom (white-label) |
+| **Verificación JWT** | JWKS (RS256) | Secret key (HS256) | Más seguro, no requiere compartir secret |
+| **Storage de tokens** | Cookies httpOnly | localStorage | Más seguro contra XSS |
+| **Roles** | En FusionAuth Registration | Custom en MongoDB | FusionAuth ya tiene RBAC integrado |
+| **Autorización** | Cerbos (separado) | En código, OPA | Policies como código, derived roles |
+| **Datos de usuario** | FusionAuth + MongoDB | Solo FusionAuth | MongoDB para datos de negocio extensibles |
+
+---
+
+## Próximos Pasos
+
+- [ ] Migrar implementación de Frontegg a FusionAuth
+- [ ] Configurar FusionAuth Tenant para cada cliente existente
+- [ ] Implementar JWT Populate Lambda para claims custom
+- [ ] Actualizar hook `useFusionAuth` basado en `useFronteggAuth`
+- [ ] Configurar JWKS endpoint en guards
+- [ ] Testing de flujos de auth end-to-end

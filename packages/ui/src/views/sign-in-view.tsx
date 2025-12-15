@@ -13,7 +13,7 @@ import { Form, Field } from '../components/hook-form';
 import { FormHead } from '../components/form-head';
 import { FormDivider } from '../components/form-divider';
 import { FormSocials } from '../components/form-socials';
-import { useFronteggAuth } from '../hooks/use-frontegg-auth';
+import { useFusionAuth } from '../hooks/use-fusionauth';
 
 // ----------------------------------------------------------------------
 
@@ -36,10 +36,10 @@ export function SignInView({
   redirectPath = '/',
 }: SignInViewProps) {
   const router = useRouter();
-  const { login, verifyMfa, loginWithGoogle, isLoading } = useFronteggAuth();
+  const { login, verifyTwoFactor, loginWithGoogle, isLoading } = useFusionAuth();
   const [errorMsg, setErrorMsg] = useState('');
   const [needsTwoFactor, setNeedsTwoFactor] = useState(false);
-  const [mfaToken, setMfaToken] = useState<string | null>(null);
+  const [twoFactorId, setTwoFactorId] = useState<string | null>(null);
 
   const methods = useForm<SignInFormData>({
     defaultValues: { email: '', password: '' },
@@ -58,23 +58,26 @@ export function SignInView({
         password: data.password,
       });
 
-      // Check if MFA is required
-      if (result.mfaRequired && result.mfaToken) {
-        setMfaToken(result.mfaToken);
+      console.log('[SignIn] Login result:', result);
+
+      // Check if MFA is required (FusionAuth returns twoFactorId for 2FA)
+      if (result.twoFactorId) {
+        setTwoFactorId(result.twoFactorId);
         setNeedsTwoFactor(true);
       } else {
         // Login successful, redirect
+        console.log('[SignIn] Redirecting to:', redirectPath);
         router.push(redirectPath);
         router.refresh(); // Refresh to update auth state
       }
     } catch (error: unknown) {
-      const fronteggError = error as { message?: string };
-      setErrorMsg(fronteggError.message || 'Error al iniciar sesión. Verifica tus credenciales.');
+      const authError = error as { message?: string };
+      setErrorMsg(authError.message || 'Error al iniciar sesión. Verifica tus credenciales.');
     }
   });
 
   const onSubmitTwoFactor = twoFactorMethods.handleSubmit(async (data) => {
-    if (!mfaToken) {
+    if (!twoFactorId) {
       setErrorMsg('Token MFA no encontrado. Por favor, vuelve a iniciar sesión.');
       setNeedsTwoFactor(false);
       return;
@@ -83,15 +86,15 @@ export function SignInView({
     setErrorMsg('');
 
     try {
-      await verifyMfa({
-        mfaToken,
+      await verifyTwoFactor({
+        twoFactorId,
         code: data.code,
       });
       router.push(redirectPath);
       router.refresh();
     } catch (error: unknown) {
-      const fronteggError = error as { message?: string };
-      setErrorMsg(fronteggError.message || 'Código de verificación inválido');
+      const authError = error as { message?: string };
+      setErrorMsg(authError.message || 'Código de verificación inválido');
     }
   });
 
@@ -139,7 +142,7 @@ export function SignInView({
               sx={{ textAlign: 'center', cursor: 'pointer', color: 'text.secondary' }}
               onClick={() => {
                 setNeedsTwoFactor(false);
-                setMfaToken(null);
+                setTwoFactorId(null);
                 setErrorMsg('');
                 twoFactorMethods.reset();
               }}

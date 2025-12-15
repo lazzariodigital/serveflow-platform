@@ -11,7 +11,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 
 import { Form, Field } from '../components/hook-form';
 import { FormHead } from '../components/form-head';
-import { useFronteggAuth } from '../hooks/use-frontegg-auth';
+import { useFusionAuth } from '../hooks/use-fusionauth';
 
 // ----------------------------------------------------------------------
 
@@ -30,7 +30,7 @@ export function VerifyEmailView({
 }: VerifyEmailViewProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { activateAccount, resendActivationEmail, isLoading } = useFronteggAuth();
+  const { verifyEmail, resendVerificationEmail, isLoading } = useFusionAuth();
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [isResending, setIsResending] = useState(false);
@@ -41,9 +41,8 @@ export function VerifyEmailView({
     defaultValues: { code: '' },
   });
 
-  // Check for activation token in URL (from email link)
-  const activationToken = searchParams.get('token');
-  const userId = searchParams.get('userId');
+  // Check for verification token in URL (from email link)
+  const verificationId = searchParams.get('verificationId') || searchParams.get('token');
   const emailParam = searchParams.get('email');
 
   // Store email for resend functionality
@@ -53,55 +52,49 @@ export function VerifyEmailView({
     }
   }, [emailParam]);
 
-  // Auto-activate if token is in URL
+  // Auto-verify if verificationId is in URL
   useEffect(() => {
-    const autoActivate = async () => {
-      if (activationToken && userId) {
+    const autoVerify = async () => {
+      if (verificationId) {
         setIsAutoVerifying(true);
         try {
-          await activateAccount({
-            token: activationToken,
-            userId,
-          });
+          await verifyEmail(verificationId);
           setSuccessMsg('¡Cuenta verificada correctamente! Redirigiendo...');
           setTimeout(() => {
             router.push(redirectPath);
             router.refresh();
           }, 2000);
         } catch (error: unknown) {
-          const fronteggError = error as { message?: string };
-          setErrorMsg(fronteggError.message || 'Error al verificar la cuenta. El enlace puede haber expirado.');
+          const authError = error as { message?: string };
+          setErrorMsg(authError.message || 'Error al verificar la cuenta. El enlace puede haber expirado.');
         } finally {
           setIsAutoVerifying(false);
         }
       }
     };
 
-    autoActivate();
-  }, [activationToken, userId, activateAccount, router, redirectPath]);
+    autoVerify();
+  }, [verificationId, verifyEmail, router, redirectPath]);
 
   const onSubmit = methods.handleSubmit(async (data) => {
     setErrorMsg('');
     setSuccessMsg('');
 
-    if (!userId) {
-      setErrorMsg('No se encontró el ID de usuario. Por favor, usa el enlace del email.');
+    if (!data.code) {
+      setErrorMsg('Por favor, introduce el código de verificación del email.');
       return;
     }
 
     try {
-      await activateAccount({
-        token: data.code,
-        userId,
-      });
+      await verifyEmail(data.code);
       setSuccessMsg('¡Cuenta verificada correctamente! Redirigiendo...');
       setTimeout(() => {
         router.push(redirectPath);
         router.refresh();
       }, 2000);
     } catch (error: unknown) {
-      const fronteggError = error as { message?: string };
-      setErrorMsg(fronteggError.message || 'Código de verificación inválido');
+      const authError = error as { message?: string };
+      setErrorMsg(authError.message || 'Código de verificación inválido');
     }
   });
 
@@ -115,11 +108,11 @@ export function VerifyEmailView({
     setErrorMsg('');
 
     try {
-      await resendActivationEmail(userEmail);
+      await resendVerificationEmail(userEmail);
       setSuccessMsg('Código reenviado. Por favor, revisa tu correo electrónico.');
     } catch (error: unknown) {
-      const fronteggError = error as { message?: string };
-      setErrorMsg(fronteggError.message || 'Error al reenviar el código');
+      const authError = error as { message?: string };
+      setErrorMsg(authError.message || 'Error al reenviar el código');
     } finally {
       setIsResending(false);
     }

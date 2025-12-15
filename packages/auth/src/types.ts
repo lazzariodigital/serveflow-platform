@@ -1,52 +1,89 @@
 import type { Request } from 'express';
 
 // ════════════════════════════════════════════════════════════════
-// Auth Types - Frontegg
+// Auth Types - FusionAuth
 // ════════════════════════════════════════════════════════════════
 
 /**
- * Frontegg user structure from decoded JWT token
+ * FusionAuth user structure from API response
  */
-export interface FronteggUser {
+export interface FusionAuthUser {
   id: string;
-  sub: string;
   email: string;
-  name?: string;
+  firstName?: string;
+  lastName?: string;
+  fullName?: string;
+  imageUrl?: string;
+  verified: boolean;
+  active: boolean;
   tenantId: string;
-  tenantIds?: string[];
-  roles: string[];
-  permissions: string[];
-  metadata?: Record<string, unknown>;
-  // Additional fields from Frontegg API response
-  profilePictureUrl?: string;
-  verified?: boolean;
-  phoneNumber?: string;
-  createdAt?: string;
-  lastLogin?: string;
+  // Registration data (roles are per-application)
+  registrations?: Array<{
+    applicationId: string;
+    roles: string[];
+    data?: Record<string, unknown>;
+  }>;
+  // Additional fields
+  mobilePhone?: string;
+  birthDate?: string;
+  data?: Record<string, unknown>;
+  insertInstant?: number;
+  lastLoginInstant?: number;
 }
 
 /**
- * Tenant information from Frontegg
+ * FusionAuth JWT payload structure
  */
-export interface FronteggTenant {
-  tenantId: string;
-  name?: string;
-  creatorEmail?: string;
-  creatorName?: string;
+export interface FusionAuthJwtPayload {
+  // Standard claims
+  sub: string;           // User ID (UUID)
+  aud: string;           // Application ID
+  iss: string;           // FusionAuth URL (issuer)
+  exp: number;           // Expiration timestamp
+  iat: number;           // Issued at timestamp
+
+  // FusionAuth claims
+  email: string;
+  email_verified: boolean;
+  authenticationType: string;  // 'PASSWORD', 'REFRESH_TOKEN', etc.
+
+  // User info
+  given_name?: string;   // First name
+  family_name?: string;  // Last name
+  name?: string;         // Full name
+  picture?: string;      // Profile picture URL
+
+  // Registration claims
+  applicationId: string;
+  roles: string[];       // Roles from Registration
+  tid?: string;          // Tenant ID (if using multi-tenant)
+
+  // Custom claims (via JWT Populate Lambda)
+  tenantId?: string;     // Serveflow tenant ID
+}
+
+/**
+ * Tenant information from FusionAuth
+ */
+export interface FusionAuthTenant {
+  id: string;
+  name: string;
+  configured: boolean;
+  data?: Record<string, unknown>;
 }
 
 /**
  * Authenticated user object injected into requests
+ * NOTE: permissions removed - will be handled by Cerbos in Block 3
  */
 export interface AuthenticatedUser {
-  fronteggUserId: string;
+  fusionauthUserId: string;
   email: string;
   firstName?: string;
   lastName?: string;
   imageUrl?: string;
   tenantId: string;
   roles: string[];
-  permissions: string[];
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -59,7 +96,6 @@ export interface AuthRequest extends Request {
     userId: string;
     tenantId: string;
     roles: string[];
-    permissions: string[];
   };
 }
 
@@ -67,7 +103,7 @@ export interface AuthRequest extends Request {
 // Guard Options
 // ════════════════════════════════════════════════════════════════
 
-export interface FronteggGuardOptions {
+export interface FusionAuthGuardOptions {
   /**
    * If true, requires the user to have a valid tenant context
    */
@@ -79,22 +115,51 @@ export interface FronteggGuardOptions {
   roles?: string[];
 
   /**
-   * Required permissions (any of these permissions will pass)
-   */
-  permissions?: string[];
-
-  /**
    * If true, skips authentication (useful for public endpoints)
    */
   isPublic?: boolean;
 }
 
 // ════════════════════════════════════════════════════════════════
-// Frontegg Configuration
+// FusionAuth Configuration
 // ════════════════════════════════════════════════════════════════
 
-export interface FronteggConfig {
-  clientId: string;
+export interface FusionAuthConfig {
   apiKey: string;
-  baseUrl?: string;
+  url: string;
+  tenantId?: string;      // Default FusionAuth tenant ID
+  applicationId?: string; // Default application ID
+}
+
+// ════════════════════════════════════════════════════════════════
+// Input Types for FusionAuth Operations
+// ════════════════════════════════════════════════════════════════
+
+export interface CreateFusionAuthUserInput {
+  email: string;
+  password?: string;
+  firstName?: string;
+  lastName?: string;
+  tenantId: string;
+  applicationId: string;
+  roles?: string[];
+  sendSetPasswordEmail?: boolean;
+  data?: Record<string, unknown>;
+}
+
+export interface UpdateFusionAuthUserInput {
+  firstName?: string;
+  lastName?: string;
+  fullName?: string;
+  imageUrl?: string;
+  mobilePhone?: string;
+  data?: Record<string, unknown>;
+}
+
+export interface ListFusionAuthUsersParams {
+  tenantId?: string;
+  applicationId?: string;
+  queryString?: string;
+  numberOfResults?: number;
+  startRow?: number;
 }

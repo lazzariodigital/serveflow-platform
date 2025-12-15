@@ -11,8 +11,6 @@ export {
   extractSlugFromHost,
   resolveTenantBySlug,
   resolveTenantFromHost,
-  resolveTenantByFronteggId,
-  // Legacy alias for backwards compatibility
-  resolveTenantByClerkOrgId,
+  resolveTenantByFusionauthId,
   type TenantResolutionResult,
 } from '../resolver';

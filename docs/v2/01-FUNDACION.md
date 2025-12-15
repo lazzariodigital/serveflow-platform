@@ -1,7 +1,7 @@
 # Bloque 1: Fundación
 
 **Estado:** En progreso
-**Última actualización:** 2025-01-28
+**Última actualización:** 2025-12-12
 
 ---
 
@@ -124,7 +124,7 @@ MongoDB Atlas Cluster
 ┌─────────────────────────────────────────────────────────────────┐
 │  FASE 1: CORE (MVP)                    ← Implementar ahora      │
 │  ├── Identificación (slug, name)                                │
-│  ├── Auth (clerkOrgId)                                          │
+│  ├── Auth (fusionauthTenantId)                                  │
 │  ├── Infraestructura (database)                                 │
 │  ├── Datos de empresa (legalName, taxId, address)               │
 │  ├── Contacto (email, phone)                                    │
@@ -157,8 +157,14 @@ interface Tenant {
   slug: string;                    // "club-padel-madrid" (único, URL-safe)
   name: string;                    // "Club Padel Madrid"
 
-  // Auth - Vínculo con Clerk
-  clerkOrgId: string;              // ID de Organization en Clerk
+  // Auth - Vínculo con FusionAuth
+  fusionauthTenantId: string;      // ID de Tenant en FusionAuth
+
+  // Configuración FusionAuth (opcional - para multi-instance)
+  fusionauthConfig?: {
+    baseUrl?: string;              // URL de FusionAuth si es diferente al default
+    applicationId?: string;        // ID de Application en FusionAuth
+  };
 
   // Infraestructura - Esencial para routing
   database: {
@@ -265,7 +271,11 @@ interface TenantMVP {
   _id: ObjectId;
   slug: string;
   name: string;
-  clerkOrgId: string;
+  fusionauthTenantId: string;
+  fusionauthConfig?: {
+    baseUrl?: string;
+    applicationId?: string;
+  };
   database: { name: string };
   company: {
     legalName: string;
@@ -302,7 +312,7 @@ interface TenantMVP {
 ```javascript
 // db_serveflow_sys.tenants
 { slug: 1 }                        // unique - búsqueda por URL
-{ clerkOrgId: 1 }                  // unique - búsqueda desde Clerk
+{ fusionauthTenantId: 1 }          // unique - búsqueda desde FusionAuth
 { "company.taxId": 1 }             // unique - evitar duplicados por CIF/NIF
 { "contact.email": 1 }             // búsqueda por email
 { status: 1 }                      // filtrar activos
@@ -320,19 +330,21 @@ interface GlobalUser {
   _id: ObjectId;
 
   // Identificación
-  clerkId: string;                 // ID de usuario en Clerk
+  fusionauthUserId: string;        // ID en FusionAuth (Admin Application)
   email: string;
   name: string;
 
-  // Rol a nivel de sistema
-  systemRole: "superadmin" | "support" | "billing";
+  // NOTA: systemRole eliminado - viene del JWT de FusionAuth
+  // Los roles (superadmin, support, billing) están en el Registration
+  // de la Application "Serveflow Admin" en FusionAuth
 
   // Tenants a los que tiene acceso (para soporte)
   tenantAccess?: Array<{
     tenantId: ObjectId;
     role: "viewer" | "support";    // Acceso limitado
     grantedAt: Date;
-    grantedBy: ObjectId;
+    grantedBy: ObjectId;           // Quién otorgó el acceso
+    expiresAt?: Date;              // Acceso temporal (opcional)
   }>;
 
   // Timestamps
@@ -345,6 +357,37 @@ interface GlobalUser {
 - Admin de Serveflow que gestiona todos los tenants
 - Soporte que necesita acceder a tenants específicos
 - Usuario que es owner de múltiples tenants (poco común)
+
+**Roles en FusionAuth (Application "Serveflow Admin"):**
+
+| Rol | Descripción | Acceso |
+|-----|-------------|--------|
+| `superadmin` | Administrador de plataforma | Todos los tenants, todas las operaciones |
+| `support` | Soporte técnico | Solo tenants en `tenantAccess` |
+| `billing` | Gestión de facturación | Solo datos de billing |
+
+**Autorización con Cerbos:**
+
+```yaml
+# Policy para acceso de global users a tenants
+- name: superadmin_full_access
+  actions: ["*"]
+  effect: EFFECT_ALLOW
+  roles: ["superadmin"]
+
+- name: support_limited_access
+  actions: ["view", "support"]
+  effect: EFFECT_ALLOW
+  roles: ["support"]
+  condition:
+    match:
+      all:
+        of:
+          - expr: R.id in P.attr.accessibleTenants
+          - expr: >
+              !has(P.attr.tenantAccessExpiry[R.id]) ||
+              timestamp(P.attr.tenantAccessExpiry[R.id]) > now
+```
 
 ---
 
@@ -987,7 +1030,7 @@ serveflow/
 │
 ├── packages/                       # Librerías compartidas
 │   ├── @serveflow/db/              # MongoDB connection + tenant isolation
-│   ├── @serveflow/auth/            # Clerk integration
+│   ├── @serveflow/auth/            # FusionAuth integration
 │   ├── @serveflow/tenants/         # Tenant resolution (hostname → tenant)
 │   ├── @serveflow/identity/        # ✅ EXISTE - User identity cross-channel
 │   ├── @serveflow/config/          # Environment + feature flags
@@ -1029,7 +1072,7 @@ serveflow/
 │  dashboard/    Panel de gestión para admins del tenant                      │
 │                - Configuración del negocio                                  │
 │                - Gestión de reservas, usuarios, recursos                    │
-│                - Resuelve tenant por subdomain + Clerk                      │
+│                - Resuelve tenant por subdomain + FusionAuth                 │
 │                                                                              │
 │  webapp/       Web pública para clientes finales del tenant                 │
 │                - Booking online                                             │
@@ -1117,7 +1160,7 @@ serveflow/
 | `admin/api` | apps/admin/api | NestJS | `admin.serveflow.com/api/*` | No (db_serveflow_sys) |
 | `admin/dashboard` | apps/admin/dashboard | Next.js | `admin.serveflow.com/*` | No |
 | `tenant/api` | apps/tenant/api | NestJS | `{slug}.serveflow.com/api/*` | Subdomain |
-| `tenant/dashboard` | apps/tenant/dashboard | Next.js | `{slug}.serveflow.com/admin/*` | Subdomain + Clerk |
+| `tenant/dashboard` | apps/tenant/dashboard | Next.js | `{slug}.serveflow.com/admin/*` | Subdomain + FusionAuth |
 | `tenant/webapp` | apps/tenant/webapp | Next.js | `{slug}.serveflow.com/*` | Subdomain |
 | `tenant/mcp-server` | apps/tenant/mcp-server | Node.js (MCP SDK) | `mcp.internal.serveflow.com` | Header `X-Tenant-Slug` |
 | `tenant/ai-assistant` | apps/tenant/ai-assistant | Node.js (LangGraph.js) | `ai.internal.serveflow.com` | Body `tenantSlug` |
@@ -1136,7 +1179,7 @@ serveflow/
   TENANT (por subdominio)
   ───────────────────────
   {slug}.serveflow.com/                    → Webapp (reservas públicas)
-  {slug}.serveflow.com/admin/*             → Dashboard (gestión, requiere Clerk)
+  {slug}.serveflow.com/admin/*             → Dashboard (gestión, requiere FusionAuth)
   {slug}.serveflow.com/api/*               → API REST del tenant
   {slug}.serveflow.com/api/whatsapp/webhook→ Webhook de Meta WhatsApp
 
@@ -1215,10 +1258,10 @@ serveflow/
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  @serveflow/auth                                                             │
 │  ──────────────                                                              │
-│  • Clerk middleware (backend)                                                │
-│  • ClerkProvider (frontend)                                                  │
+│  • FusionAuth middleware (backend)                                           │
+│  • FusionAuthProvider (frontend)                                             │
 │  • getAuth() helper                                                          │
-│  • User/Org types desde Clerk                                                │
+│  • User/Tenant types desde FusionAuth                                        │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  @serveflow/tenants                            ✅ EXISTE                     │
 │  ─────────────────                                                           │
@@ -1475,7 +1518,7 @@ export const TenantSchema = z.object({
   _id: z.string().optional(),
   slug: z.string().min(3).max(50).regex(/^[a-z0-9-]+$/),
   name: z.string().min(1).max(100),
-  clerkOrgId: z.string().min(1),
+  fusionauthTenantId: z.string().min(1),
   database: z.object({
     name: z.string().regex(/^db_tenant_[a-z0-9_]+$/),
   }),
@@ -1537,7 +1580,7 @@ export class Tenant implements Omit<TenantType, '_id' | 'createdAt' | 'updatedAt
   name!: string;
 
   @Prop({ required: true, unique: true, index: true })
-  clerkOrgId!: string;
+  fusionauthTenantId!: string;
 
   @Prop({ type: Object, required: true })
   database!: { name: string };
@@ -1689,7 +1732,7 @@ export class TenantsController {
 | `@serveflow/auth` | Server-only | ❌ No | Usa `@nestjs/common` |
 | `@serveflow/webhooks` | Server-only | ❌ No | Usa Svix + backend |
 | `@serveflow/ui` | Universal | ✅ Sí | React components |
-| `@serveflow/auth-ui` | Universal | ✅ Sí | React + Clerk hooks |
+| `@serveflow/auth-ui` | Universal | ✅ Sí | React + FusionAuth hooks |
 
 #### Solución: Exports Condicionales
 
@@ -2004,16 +2047,16 @@ export async function tenantMiddleware(
   }
 
   // ════════════════════════════════════════════════════════════════
-  // PASO 2: Validar que el usuario de Clerk pertenece a este tenant
+  // PASO 2: Validar que el usuario de FusionAuth pertenece a este tenant
   // ════════════════════════════════════════════════════════════════
 
-  const { orgId } = req.auth || {};
+  const { tenantId } = req.auth || {};
 
-  // Si hay sesión de Clerk, validar que el orgId coincide
-  if (orgId && tenant.clerkOrgId !== orgId) {
+  // Si hay sesión de FusionAuth, validar que el tenantId coincide
+  if (tenantId && tenant.fusionauthTenantId !== tenantId) {
     return res.status(403).json({
       error: "TENANT_MISMATCH",
-      message: "Your Clerk organization doesn't match this tenant"
+      message: "Your FusionAuth tenant doesn't match this tenant"
     });
   }
 
@@ -2307,13 +2350,13 @@ Cada servicio resuelve el tenant de forma diferente según su contexto de entrad
   │  tenant/dashboard y tenant/webapp                                       │
   │  ───────────────────────────────────                                    │
   │                                                                         │
-  │  SUBDOMAIN + CLERK                                                     │
-  │  ─────────────────                                                      │
+  │  SUBDOMAIN + FUSIONAUTH                                                │
+  │  ─────────────────────                                                  │
   │  club-padel-madrid.serveflow.com                                       │
   │                 ↓                                                       │
   │  1. Extraer slug del subdomain                                         │
-  │  2. Validar Clerk JWT (si autenticado)                                 │
-  │  3. Verificar clerkOrgId == tenant.clerkOrgId                         │
+  │  2. Validar FusionAuth JWT (si autenticado)                            │
+  │  3. Verificar tenantId == tenant.fusionauthTenantId                    │
   │                 ↓                                                       │
   │  Inyectar TenantContext en la app                                      │
   └─────────────────────────────────────────────────────────────────────────┘
@@ -2373,7 +2416,7 @@ Cada servicio resuelve el tenant de forma diferente según su contexto de entrad
   │  {                                                                     │
   │    "message": "¿Cuántas reservas hay mañana?",                        │
   │    "channel": "dashboard",                                             │
-  │    "userId": "user_clerk_xxx"                                          │
+  │    "userId": "user_fusionauth_xxx"                                     │
   │  }                                                                     │
   │  ```                                                                   │
   │                                                                         │
@@ -2460,7 +2503,7 @@ Cada servicio resuelve el tenant de forma diferente según su contexto de entrad
 | Servicio | Input | Método de Resolución | Output |
 |----------|-------|----------------------|--------|
 | `tenant/api` | HTTP Request | Subdomain o Header `X-Tenant-Slug` | `req.tenantContext` |
-| `tenant/dashboard` | Browser | Subdomain + Clerk validation | `TenantContext` (React) |
+| `tenant/dashboard` | Browser | Subdomain + FusionAuth validation | `TenantContext` (React) |
 | `tenant/webapp` | Browser | Subdomain | `TenantContext` (React) |
 | `mcp-server` | AI Assistant | Header `X-Tenant-Slug` del caller | Propaga a tenant/api |
 | `ai-assistant` | WhatsApp/Dashboard | `tenantSlug` en body/header | `state.tenant` (LangGraph) |
@@ -2524,8 +2567,8 @@ Cada servicio resuelve el tenant de forma diferente según su contexto de entrad
 
 ```
 
-**Importante:** El tenant se resuelve por SUBDOMAIN primero, no por Clerk orgId.
-El Clerk orgId solo se usa para validar que el usuario autenticado tiene acceso a ese tenant.
+**Importante:** El tenant se resuelve por SUBDOMAIN primero, no por FusionAuth tenantId.
+El FusionAuth tenantId solo se usa para validar que el usuario autenticado tiene acceso a ese tenant.
 
 ### 7.2 Middleware Chain (NestJS)
 
@@ -2569,7 +2612,7 @@ export class TenantMiddleware implements NestMiddleware {
 
 import { Module, NestModule, MiddlewareConsumer } from "@nestjs/common";
 import { TenantMiddleware } from "./common/middleware/tenant.middleware";
-import { ClerkAuthGuard } from "@serveflow/auth";
+import { FusionAuthGuard } from "@serveflow/auth";
 
 @Module({
   imports: [/* ... */],
@@ -2579,7 +2622,7 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     // Orden de middlewares (importante!)
     // 1. TenantMiddleware: Extrae subdomain → Resuelve tenant → Conecta DB
-    // 2. ClerkAuthGuard: Se aplica por decorador en controllers que lo necesiten
+    // 2. FusionAuthGuard: Se aplica por decorador en controllers que lo necesiten
     consumer
       .apply(TenantMiddleware)
       .forRoutes("*");
@@ -2591,13 +2634,13 @@ export class AppModule implements NestModule {
 // apps/tenant/api/src/organizations/organizations.controller.ts
 
 import { Controller, Get, UseGuards } from "@nestjs/common";
-import { ClerkAuthGuard } from "@serveflow/auth";
+import { FusionAuthGuard } from "@serveflow/auth";
 import { TenantContext } from "../common/decorators/tenant.decorator";
 
 @Controller("organizations")
 export class OrganizationsController {
   @Get()
-  @UseGuards(ClerkAuthGuard)  // Solo rutas que requieren auth
+  @UseGuards(FusionAuthGuard)  // Solo rutas que requieren auth
   async findAll(@TenantContext() ctx: TenantContextType) {
     const orgs = await ctx.db.collection("organizations").find().toArray();
     return orgs;
@@ -2684,7 +2727,7 @@ export class WebhooksController {
 interface CreateTenantInput {
   slug: string;
   name: string;
-  clerkOrgId: string;
+  fusionauthTenantId: string;
   ownerEmail: string;
   company: {
     legalName: string;
@@ -2721,7 +2764,7 @@ export async function provisionTenant(input: CreateTenantInput): Promise<TenantM
     _id: new ObjectId(),
     slug: input.slug,
     name: input.name,
-    clerkOrgId: input.clerkOrgId,
+    fusionauthTenantId: input.fusionauthTenantId,
     database: { name: dbName },
     company: input.company,
     contact: input.contact,
@@ -2905,9 +2948,11 @@ function extractTenantSlug(req: Request): string | null {
 # MongoDB
 MONGODB_URI=mongodb+srv://...@cluster.mongodb.net
 
-# Clerk
-CLERK_SECRET_KEY=sk_...
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_...
+# FusionAuth
+FUSIONAUTH_URL=https://your-fusionauth-instance.com
+FUSIONAUTH_API_KEY=your-api-key
+FUSIONAUTH_TENANT_ID=default-tenant-id
+FUSIONAUTH_APPLICATION_ID=your-app-id
 
 # Base domain (para construir URLs de tenants)
 NEXT_PUBLIC_BASE_DOMAIN=serveflow.com
@@ -2971,7 +3016,7 @@ export async function createTenantIndexes(db: Db): Promise<void> {
     db.collection("organizations").createIndex({ status: 1 }),
 
     // Users
-    db.collection("users").createIndex({ clerkId: 1 }, { unique: true }),
+    db.collection("users").createIndex({ fusionauthUserId: 1 }, { unique: true }),
     db.collection("users").createIndex({ email: 1 }),
 
     // Memberships
@@ -3001,13 +3046,13 @@ export async function createSystemIndexes(db: Db): Promise<void> {
   await Promise.all([
     // Tenants
     db.collection("tenants").createIndex({ slug: 1 }, { unique: true }),
-    db.collection("tenants").createIndex({ clerkOrgId: 1 }, { unique: true }),
+    db.collection("tenants").createIndex({ fusionauthTenantId: 1 }, { unique: true }),
     db.collection("tenants").createIndex({ "company.taxId": 1 }, { unique: true }),
     db.collection("tenants").createIndex({ "contact.email": 1 }),
     db.collection("tenants").createIndex({ status: 1 }),
 
     // Global Users
-    db.collection("global_users").createIndex({ clerkId: 1 }, { unique: true }),
+    db.collection("global_users").createIndex({ fusionauthUserId: 1 }, { unique: true }),
     db.collection("global_users").createIndex({ email: 1 }, { unique: true }),
 
     // Billing
@@ -3067,7 +3112,7 @@ export async function createSystemIndexes(db: Db): Promise<void> {
   │  {tenant-slug}.serveflow.com                                            │
   │                                                                         │
   │  /              → Webapp (reservas, info) - SIN auth obligatorio       │
-  │  /admin/*       → Dashboard de gestión - REQUIERE auth (Clerk)         │
+  │  /admin/*       → Dashboard de gestión - REQUIERE auth (FusionAuth)    │
   │  /api/*         → API del tenant (NestJS)                              │
   └─────────────────────────────────────────────────────────────────────────┘
 
@@ -3229,7 +3274,7 @@ export async function createSystemIndexes(db: Db): Promise<void> {
   │   └── { slug: "gym-valencia", database: { name: "db_tenant_gym_valencia" }, advancedSettings: { customDomain: "app.gymvalencia.com" }, ... }
   │
   ├── global_users
-  │   └── { email: "admin@serveflow.com", systemRole: "superadmin", ... }
+  │   └── { email: "admin@serveflow.com", fusionauthUserId: "fa-xxx", ... }  // roles en FusionAuth JWT
   │
   └── billing
       ├── { tenantId: ObjectId("..."), plan: "pro", status: "active" }
@@ -3663,7 +3708,7 @@ erDiagram
         ObjectId _id PK
         string slug UK
         string name
-        string clerkOrgId UK
+        string fusionauthTenantId UK
         json database
         json company
         json contact
@@ -3696,11 +3741,10 @@ erDiagram
 
     GLOBAL_USER {
         ObjectId _id PK
-        string clerkId UK
+        string fusionauthUserId UK
         string email
         string name
-        string systemRole
-        json tenantAccess
+        json tenantAccess "con expiresAt opcional"
         datetime createdAt
         datetime updatedAt
     }
@@ -3757,4 +3801,4 @@ erDiagram
 
 ## Siguiente Bloque
 
-→ [02-IDENTIDAD.md](./02-IDENTIDAD.md): Auth (Clerk) + User + Membership
+→ [02-IDENTIDAD.md](./02-IDENTIDAD.md): Auth (FusionAuth) + User + Membership

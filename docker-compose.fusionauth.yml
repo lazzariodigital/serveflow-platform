@@ -1,0 +1,96 @@
+# ════════════════════════════════════════════════════════════════
+# FusionAuth Docker Compose - Serveflow Platform
+# ════════════════════════════════════════════════════════════════
+# Usage:
+#   docker-compose -f docker-compose.fusionauth.yml up -d
+#
+# FusionAuth Admin Console: http://localhost:9011
+# Default setup wizard will guide you through initial configuration.
+# ════════════════════════════════════════════════════════════════
+
+version: '3.8'
+
+services:
+  # ════════════════════════════════════════════════════════════════
+  # PostgreSQL Database for FusionAuth
+  # ════════════════════════════════════════════════════════════════
+  fusionauth-db:
+    image: postgres:15-alpine
+    container_name: serveflow-fusionauth-db
+    environment:
+      POSTGRES_DB: fusionauth
+      POSTGRES_USER: fusionauth
+      POSTGRES_PASSWORD: ${FUSIONAUTH_DB_PASSWORD:-fusionauth_dev_password}
+    volumes:
+      - fusionauth-db-data:/var/lib/postgresql/data
+    networks:
+      - serveflow-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fusionauth"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ════════════════════════════════════════════════════════════════
+  # FusionAuth Server
+  # ════════════════════════════════════════════════════════════════
+  fusionauth:
+    image: fusionauth/fusionauth-app:1.52.0
+    container_name: serveflow-fusionauth
+    depends_on:
+      fusionauth-db:
+        condition: service_healthy
+    environment:
+      # Database configuration
+      DATABASE_URL: jdbc:postgresql://fusionauth-db:5432/fusionauth
+      DATABASE_ROOT_USERNAME: fusionauth
+      DATABASE_ROOT_PASSWORD: ${FUSIONAUTH_DB_PASSWORD:-fusionauth_dev_password}
+      DATABASE_USERNAME: fusionauth
+      DATABASE_PASSWORD: ${FUSIONAUTH_DB_PASSWORD:-fusionauth_dev_password}
+
+      # FusionAuth configuration
+      FUSIONAUTH_APP_MEMORY: ${FUSIONAUTH_APP_MEMORY:-512M}
+      FUSIONAUTH_APP_RUNTIME_MODE: ${FUSIONAUTH_RUNTIME_MODE:-development}
+      FUSIONAUTH_APP_URL: http://localhost:9011
+
+      # CORS configuration for development
+      # Note: FusionAuth doesn't support wildcards like *.localhost
+      # Use "*" to allow all origins in development
+      FUSIONAUTH_APP_CORS_ENABLED: "true"
+      FUSIONAUTH_APP_CORS_ALLOW_CREDENTIALS: "false"
+      FUSIONAUTH_APP_CORS_ALLOWED_HEADERS: "Accept,Access-Control-Request-Headers,Access-Control-Request-Method,Authorization,Content-Type,Last-Modified,Origin,X-FusionAuth-TenantId,X-Requested-With"
+      FUSIONAUTH_APP_CORS_ALLOWED_METHODS: "GET,POST,PUT,DELETE,HEAD,OPTIONS,PATCH"
+      FUSIONAUTH_APP_CORS_ALLOWED_ORIGINS: "*"
+      FUSIONAUTH_APP_CORS_EXPOSED_HEADERS: ""
+
+      # Search engine (using database for simplicity in dev)
+      SEARCH_TYPE: database
+
+      # Kickstart configuration (optional - for automated setup)
+      # FUSIONAUTH_APP_KICKSTART_FILE: /usr/local/fusionauth/kickstart/kickstart.json
+    ports:
+      - "9011:9011"  # FusionAuth web UI and API
+    volumes:
+      - fusionauth-config:/usr/local/fusionauth/config
+      # Uncomment to use kickstart for automated tenant/application setup
+      # - ./infra/fusionauth/kickstart:/usr/local/fusionauth/kickstart
+    networks:
+      - serveflow-network
+    restart: unless-stopped
+
+# ════════════════════════════════════════════════════════════════
+# Networks
+# ════════════════════════════════════════════════════════════════
+networks:
+  serveflow-network:
+    driver: bridge
+
+# ════════════════════════════════════════════════════════════════
+# Volumes
+# ════════════════════════════════════════════════════════════════
+volumes:
+  fusionauth-db-data:
+    driver: local
+  fusionauth-config:
+    driver: local

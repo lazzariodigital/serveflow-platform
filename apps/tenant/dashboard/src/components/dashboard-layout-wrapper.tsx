@@ -1,7 +1,6 @@
 'use client';
 
-import { useAuth } from '@frontegg/nextjs';
-import { DashboardLayout, type DashboardLayoutProps } from '@serveflow/ui';
+import { DashboardLayout, type DashboardLayoutProps, useFusionAuth } from '@serveflow/ui';
 import { useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -10,7 +9,7 @@ import { useRouter } from 'next/navigation';
 type DashboardLayoutWrapperProps = Omit<DashboardLayoutProps, 'onSignOut'>;
 
 export function DashboardLayoutWrapper({ children, ...props }: DashboardLayoutWrapperProps) {
-  const { logout } = useAuth();
+  const { logout } = useFusionAuth();
   const router = useRouter();
 
   const handleSignOut = useCallback(async () => {

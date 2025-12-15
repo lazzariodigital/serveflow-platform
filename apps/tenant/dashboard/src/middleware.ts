@@ -2,10 +2,10 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 // ════════════════════════════════════════════════════════════════
-// Frontegg Middleware for Multi-Tenant Authentication
+// FusionAuth Middleware for Multi-Tenant Authentication
 // ════════════════════════════════════════════════════════════════
-// Each tenant has its own Frontegg environment (baseUrl + clientId)
-// Authentication is handled by Frontegg's embedded login within each tenant
+// Each tenant has its own FusionAuth tenant + application
+// Authentication is handled via FusionAuth cookies (fa_access_token)
 // ════════════════════════════════════════════════════════════════
 
 // Public routes - no auth required
@@ -59,17 +59,19 @@ function extractTenantSlug(host: string): string | null {
 }
 
 // ════════════════════════════════════════════════════════════════
-// Verify Frontegg Token
+// Verify FusionAuth Token (basic validation in middleware)
+// Full JWKS verification happens in the backend guard
 // ════════════════════════════════════════════════════════════════
-async function verifyFronteggToken(token: string, tenantBaseUrl: string): Promise<{
+async function verifyFusionAuthToken(token: string): Promise<{
   valid: boolean;
   userId?: string;
   tenantId?: string;
+  applicationId?: string;
   email?: string;
+  roles?: string[];
 }> {
   try {
-    // For server-side token verification, we decode the JWT and verify its claims
-    // The token is issued by Frontegg and contains tenant-specific claims
+    // Decode JWT payload (signature verification done in backend)
     const base64Payload = token.split('.')[1];
     if (!base64Payload) {
       return { valid: false };
@@ -82,17 +84,19 @@ async function verifyFronteggToken(token: string, tenantBaseUrl: string): Promis
       return { valid: false };
     }
 
-    // Verify issuer matches tenant's Frontegg URL
-    if (payload.iss && !payload.iss.includes(tenantBaseUrl.replace('https://', ''))) {
-      console.warn('[Middleware] Token issuer mismatch');
-      return { valid: false };
-    }
+    // FusionAuth JWT claims:
+    // sub = user ID
+    // aud = application ID
+    // tid = tenant ID (if multi-tenant)
+    // roles = user roles from registration
 
     return {
       valid: true,
       userId: payload.sub,
-      tenantId: payload.tenantId,
+      tenantId: payload.tid,
+      applicationId: payload.aud,
       email: payload.email,
+      roles: payload.roles || [],
     };
   } catch (error) {
     console.error('[Middleware] Token verification error:', error);
@@ -124,14 +128,11 @@ export async function middleware(req: NextRequest) {
   }
 
   // ════════════════════════════════════════════════════════════════
-  // 3. Extract Frontegg access token from cookies
+  // 3. Extract FusionAuth access token from cookies
   // ════════════════════════════════════════════════════════════════
-  // Frontegg stores the access token in a cookie named 'fe_access_token'
-  // or in a tenant-specific cookie: 'fe_access_token_{tenantSlug}'
+  // FusionAuth token stored in cookie 'fa_access_token'
   const accessToken =
-    req.cookies.get(`fe_access_token_${tenantSlug}`)?.value ||
-    req.cookies.get('fe_access_token')?.value ||
-    req.cookies.get('frontegg-access-token')?.value;
+    req.cookies.get('fa_access_token')?.value;
 
   // ════════════════════════════════════════════════════════════════
   // 4. Verify authentication for protected routes
@@ -143,11 +144,9 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(signInUrl);
   }
 
-  // Get tenant's Frontegg base URL (will be resolved from DB in layout)
-  // For middleware, we do a basic token structure check
-  const tenantBaseUrl = process.env.FRONTEGG_BASE_URL || '';
-
-  const tokenResult = await verifyFronteggToken(accessToken, tenantBaseUrl);
+  // Basic token structure check in middleware
+  // Full JWKS verification happens in the backend FusionAuthGuard
+  const tokenResult = await verifyFusionAuthToken(accessToken);
 
   if (!tokenResult.valid) {
     // Invalid token - redirect to sign-in
@@ -172,10 +171,13 @@ export async function middleware(req: NextRequest) {
     response.headers.set('x-tenant-slug', tenantSlug);
   }
   if (tokenResult.userId) {
-    response.headers.set('x-frontegg-user-id', tokenResult.userId);
+    response.headers.set('x-fusionauth-user-id', tokenResult.userId);
   }
   if (tokenResult.tenantId) {
-    response.headers.set('x-frontegg-tenant-id', tokenResult.tenantId);
+    response.headers.set('x-fusionauth-tenant-id', tokenResult.tenantId);
+  }
+  if (tokenResult.applicationId) {
+    response.headers.set('x-fusionauth-application-id', tokenResult.applicationId);
   }
 
   return response;

@@ -8,7 +8,5 @@
 // Types (client-safe)
 export * from './types';
 
-// Frontegg SDK functions (can be used server-side in Next.js)
-export * from './frontegg';
-
-
+// FusionAuth SDK functions (can be used server-side in Next.js)
+export * from './fusionauth';

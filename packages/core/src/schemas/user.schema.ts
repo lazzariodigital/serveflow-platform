@@ -49,8 +49,11 @@ export const ProviderProfileSchema = z.object({
 // ════════════════════════════════════════════════════════════════
 
 export const UserSchema = z.object({
-  // Identidad - Vínculo con Frontegg
-  fronteggUserId: z.string().min(1, 'Frontegg User ID is required'),
+  // MongoDB ID (present when reading from database)
+  _id: z.any().optional(),
+
+  // Identidad - Vínculo con FusionAuth
+  fusionauthUserId: z.string().min(1, 'FusionAuth User ID is required'),
 
   // Datos básicos
   email: z.string().email('Invalid email'),
@@ -93,8 +96,8 @@ export const UserSchema = z.object({
 // ════════════════════════════════════════════════════════════════
 
 export const CreateUserInputSchema = z.object({
-  // Identidad (required) - Vínculo con Frontegg
-  fronteggUserId: z.string().min(1, 'Frontegg User ID is required'),
+  // Identidad (required) - Vínculo con FusionAuth
+  fusionauthUserId: z.string().min(1, 'FusionAuth User ID is required'),
   email: z.string().email('Invalid email'),
   firstName: z.string().min(1, 'First name is required'),
   lastName: z.string().min(1, 'Last name is required'),
@@ -206,7 +209,7 @@ export const CreateUserRequestSchema = z.object({
 });
 
 /**
- * API Update User Request - Used by tenant-api PUT /users/:fronteggUserId
+ * API Update User Request - Used by tenant-api PUT /users/:fusionauthUserId
  */
 export const UpdateUserRequestSchema = z.object({
   email: z.string().email('Invalid email').optional(),

@@ -6,7 +6,7 @@
 // ════════════════════════════════════════════════════════════════
 
 // NestJS Guards
-export * from './guards/frontegg-auth.guard';
+export * from './guards/fusionauth-auth.guard';
 
 // NestJS Decorators
 export * from './decorators/auth.decorator';

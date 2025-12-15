@@ -1,13 +1,13 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import type { Model } from 'mongoose';
 import {
-  createFronteggUser,
-  updateFronteggUser,
-  deleteFronteggUser,
+  createFusionAuthUser,
+  updateFusionAuthUser,
+  deleteFusionAuthUser,
 } from '@serveflow/auth';
 import {
   createUser as createUserInDb,
-  getUserByFronteggId,
+  getUserByFusionauthId,
   getUserByEmail,
   listUsers,
   updateUser,
@@ -25,8 +25,8 @@ import type {
 // ════════════════════════════════════════════════════════════════
 // Users Service
 //
-// Este servicio coordina operaciones entre Frontegg y MongoDB.
-// FLUJO DIRECTO: API → Frontegg + MongoDB en mismo request (no webhooks)
+// Este servicio coordina operaciones entre FusionAuth y MongoDB.
+// FLUJO DIRECTO: API → FusionAuth + MongoDB en mismo request (no webhooks)
 //
 // MIGRACIÓN MONGOOSE: Ahora recibe Model<User> en lugar de Db
 // ════════════════════════════════════════════════════════════════
@@ -34,17 +34,19 @@ import type {
 @Injectable()
 export class UsersService {
   /**
-   * Crea un usuario en Frontegg + MongoDB.
+   * Crea un usuario en FusionAuth + MongoDB.
    * FLUJO DIRECTO: No espera webhook, crea en ambos sistemas inmediatamente.
    *
    * @param userModel - Mongoose User Model (inyectado por TenantMiddleware)
-   * @param fronteggTenantId - ID del tenant de Frontegg (inyectado por TenantMiddleware)
+   * @param fusionauthTenantId - ID del tenant de FusionAuth (inyectado por TenantMiddleware)
+   * @param fusionauthApplicationId - ID de la aplicación FusionAuth
    * @param dto - Datos del usuario a crear (validated by Zod)
    * @returns Usuario creado
    */
   async create(
     userModel: Model<User>,
-    fronteggTenantId: string,
+    fusionauthTenantId: string,
+    fusionauthApplicationId: string,
     dto: CreateUserRequest
   ): Promise<User> {
     // 1. Verificar que el email no existe en MongoDB
@@ -54,44 +56,35 @@ export class UsersService {
     }
 
     try {
-      // 2. Crear usuario en Frontegg
-      // Frontegg requires at least one role
-      const defaultRoleId = process.env['FRONTEGG_DEFAULT_ROLE_ID'];
-      if (!defaultRoleId) {
-        throw new BadRequestException(
-          'FRONTEGG_DEFAULT_ROLE_ID not configured. Create a role in Frontegg Portal > Entitlements > Roles and add its ID to .env'
-        );
-      }
-
-      const fronteggUser = await createFronteggUser({
+      // 2. Crear usuario en FusionAuth
+      const fusionauthUser = await createFusionAuthUser({
         email: dto.email,
-        name: `${dto.firstName || ''} ${dto.lastName || ''}`.trim(),
-        tenantId: fronteggTenantId,
-        roleIds: [defaultRoleId],
-        metadata: {
-          firstName: dto.firstName,
-          lastName: dto.lastName,
-        },
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        tenantId: fusionauthTenantId,
+        applicationId: fusionauthApplicationId,
+        roles: ['user'], // Default role
+        sendSetPasswordEmail: true, // Send email to set password
       });
 
       // 3. Crear usuario en MongoDB
       const user = await createUserInDb(userModel, {
-        fronteggUserId: fronteggUser.id,
+        fusionauthUserId: fusionauthUser.id,
         email: dto.email,
         firstName: dto.firstName,
         lastName: dto.lastName,
         phoneNumber: dto.phoneNumber,
-        imageUrl: dto.imageUrl || fronteggUser.profilePictureUrl,
+        imageUrl: dto.imageUrl || fusionauthUser.imageUrl,
         status: 'active',
-        isVerified: fronteggUser.verified || false,
+        isVerified: fusionauthUser.verified || false,
         organizationIds: dto.organizationIds || [],
       });
 
-      console.log(`[UsersService] User ${fronteggUser.id} created via direct flow`);
+      console.log(`[UsersService] User ${fusionauthUser.id} created via direct flow`);
 
       return user;
     } catch (error) {
-      // Si falla crear en Frontegg, no creamos en MongoDB
+      // Si falla crear en FusionAuth, no creamos en MongoDB
       console.error('[UsersService] Error creating user:', error);
 
       throw new BadRequestException(
@@ -101,16 +94,16 @@ export class UsersService {
   }
 
   /**
-   * Obtiene un usuario por su Frontegg User ID.
+   * Obtiene un usuario por su FusionAuth User ID.
    *
    * @param userModel - Mongoose User Model
-   * @param fronteggUserId - ID del usuario en Frontegg
+   * @param fusionauthUserId - ID del usuario en FusionAuth
    * @returns Usuario o null
    */
-  async findByFronteggId(userModel: Model<User>, fronteggUserId: string): Promise<User | null> {
-    console.log(`[UsersService.findByFronteggId] Looking for fronteggUserId: ${fronteggUserId}`);
-    const user = await getUserByFronteggId(userModel, fronteggUserId);
-    console.log(`[UsersService.findByFronteggId] Result:`, user ? `Found user ${user.email}` : 'Not found');
+  async findByFusionauthId(userModel: Model<User>, fusionauthUserId: string): Promise<User | null> {
+    console.log(`[UsersService.findByFusionauthId] Looking for fusionauthUserId: ${fusionauthUserId}`);
+    const user = await getUserByFusionauthId(userModel, fusionauthUserId);
+    console.log(`[UsersService.findByFusionauthId] Result:`, user ? `Found user ${user.email}` : 'Not found');
     return user;
   }
 
@@ -161,41 +154,36 @@ export class UsersService {
   }
 
   /**
-   * Actualiza un usuario en Frontegg + MongoDB.
+   * Actualiza un usuario en FusionAuth + MongoDB.
    *
    * @param userModel - Mongoose User Model
-   * @param fronteggUserId - ID del usuario en Frontegg
+   * @param fusionauthUserId - ID del usuario en FusionAuth
    * @param dto - Datos a actualizar (validated by Zod)
-   * @param fronteggTenantId - Frontegg tenant ID for API calls (optional - skip Frontegg update if not provided)
    * @returns Usuario actualizado
    */
   async update(
     userModel: Model<User>,
-    fronteggUserId: string,
-    dto: UpdateUserRequest,
-    fronteggTenantId?: string
+    fusionauthUserId: string,
+    dto: UpdateUserRequest
   ): Promise<User> {
     // 1. Verificar que el usuario existe
-    const existingUser = await getUserByFronteggId(userModel, fronteggUserId);
+    const existingUser = await getUserByFusionauthId(userModel, fusionauthUserId);
     if (!existingUser) {
       throw new NotFoundException('User not found');
     }
 
     try {
-      // 2. Actualizar en Frontegg (solo campos que Frontegg maneja)
-      // Only call Frontegg API if we have a tenantId
-      if (fronteggTenantId && (dto.firstName || dto.lastName)) {
-        await updateFronteggUser(fronteggUserId, fronteggTenantId, {
-          name: `${dto.firstName || existingUser.firstName || ''} ${dto.lastName || existingUser.lastName || ''}`.trim(),
-          metadata: {
-            ...(dto.firstName && { firstName: dto.firstName }),
-            ...(dto.lastName && { lastName: dto.lastName }),
-          },
+      // 2. Actualizar en FusionAuth (solo campos que FusionAuth maneja)
+      if (dto.firstName || dto.lastName || dto.imageUrl) {
+        await updateFusionAuthUser(fusionauthUserId, {
+          firstName: dto.firstName || existingUser.firstName,
+          lastName: dto.lastName || existingUser.lastName,
+          imageUrl: dto.imageUrl,
         });
       }
 
       // 3. Actualizar en MongoDB
-      const updatedUser = await updateUser(userModel, fronteggUserId, {
+      const updatedUser = await updateUser(userModel, fusionauthUserId, {
         ...dto,
       });
 
@@ -203,7 +191,7 @@ export class UsersService {
         throw new NotFoundException('User not found after update');
       }
 
-      console.log(`[UsersService] User ${fronteggUserId} updated`);
+      console.log(`[UsersService] User ${fusionauthUserId} updated`);
 
       return updatedUser;
     } catch (error) {
@@ -224,25 +212,25 @@ export class UsersService {
    * Marca el usuario como archived en MongoDB.
    *
    * @param userModel - Mongoose User Model
-   * @param fronteggUserId - ID del usuario en Frontegg
+   * @param fusionauthUserId - ID del usuario en FusionAuth
    * @returns Usuario archivado
    */
-  async archive(userModel: Model<User>, fronteggUserId: string): Promise<User> {
-    const user = await getUserByFronteggId(userModel, fronteggUserId);
+  async archive(userModel: Model<User>, fusionauthUserId: string): Promise<User> {
+    const user = await getUserByFusionauthId(userModel, fusionauthUserId);
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
     try {
       // Marcar como archived en MongoDB
-      // Nota: Frontegg maneja el estado del usuario separadamente
-      const archivedUser = await archiveUserInDb(userModel, fronteggUserId);
+      // Nota: FusionAuth maneja el estado del usuario separadamente
+      const archivedUser = await archiveUserInDb(userModel, fusionauthUserId);
 
       if (!archivedUser) {
         throw new NotFoundException('User not found after archive');
       }
 
-      console.log(`[UsersService] User ${fronteggUserId} archived`);
+      console.log(`[UsersService] User ${fusionauthUserId} archived`);
 
       return archivedUser;
     } catch (error) {
@@ -259,30 +247,27 @@ export class UsersService {
   }
 
   /**
-   * Elimina permanentemente un usuario de Frontegg + MongoDB.
+   * Elimina permanentemente un usuario de FusionAuth + MongoDB.
    * ⚠️ OPERACIÓN IRREVERSIBLE - Usar con precaución.
    *
    * @param userModel - Mongoose User Model
-   * @param fronteggUserId - ID del usuario en Frontegg
-   * @param fronteggTenantId - Frontegg tenant ID for API calls (optional - skip Frontegg delete if not provided)
+   * @param fusionauthUserId - ID del usuario en FusionAuth
    * @returns True si se eliminó
    */
-  async remove(userModel: Model<User>, fronteggUserId: string, fronteggTenantId?: string): Promise<boolean> {
-    const user = await getUserByFronteggId(userModel, fronteggUserId);
+  async remove(userModel: Model<User>, fusionauthUserId: string): Promise<boolean> {
+    const user = await getUserByFusionauthId(userModel, fusionauthUserId);
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
     try {
-      // 1. Eliminar de Frontegg (only if tenantId provided)
-      if (fronteggTenantId) {
-        await deleteFronteggUser(fronteggUserId, fronteggTenantId);
-      }
+      // 1. Eliminar de FusionAuth
+      await deleteFusionAuthUser(fusionauthUserId);
 
       // 2. Eliminar de MongoDB
-      const deleted = await deleteUserFromDb(userModel, fronteggUserId);
+      const deleted = await deleteUserFromDb(userModel, fusionauthUserId);
 
-      console.log(`[UsersService] User ${fronteggUserId} permanently deleted`);
+      console.log(`[UsersService] User ${fusionauthUserId} permanently deleted`);
 
       return deleted;
     } catch (error) {

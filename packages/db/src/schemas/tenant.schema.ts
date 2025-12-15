@@ -26,8 +26,11 @@ export class Tenant {
   @Prop({ required: true })
   dbName!: string;
 
-  @Prop()
-  fronteggTenantId?: string;
+  @Prop({ required: true })
+  fusionauthTenantId!: string;
+
+  @Prop({ required: true })
+  fusionauthApplicationId!: string;
 
   @Prop({
     required: true,
@@ -84,4 +87,5 @@ export class Tenant {
 export const TenantSchema = SchemaFactory.createForClass(Tenant);
 
 TenantSchema.index({ status: 1, plan: 1 });
-TenantSchema.index({ fronteggTenantId: 1 }, { unique: true, sparse: true });
+TenantSchema.index({ fusionauthTenantId: 1 }, { unique: true });
+TenantSchema.index({ fusionauthApplicationId: 1 }, { unique: true });

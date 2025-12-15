@@ -17,7 +17,7 @@ import type { CreateUserInput, UpdateUserInput, UserStatus } from '@serveflow/co
  * ```typescript
  * const userModel = await mongooseConnection.getUserModel(dbName);
  * const user = await createUser(userModel, {
- *   fronteggUserId: 'uuid-xxx',
+ *   fusionauthUserId: 'fa-uuid-xxx',
  *   email: 'john@example.com',
  *   firstName: 'John',
  *   lastName: 'Doe',
@@ -36,22 +36,22 @@ export async function createUser(
 }
 
 /**
- * Gets a user by their Frontegg User ID.
+ * Gets a user by their FusionAuth User ID.
  *
  * @param userModel - Mongoose User Model
- * @param fronteggUserId - Frontegg user ID (UUID)
+ * @param fusionauthUserId - FusionAuth user ID (UUID)
  * @returns User or null if not found
  *
  * Usage:
  * ```typescript
- * const user = await getUserByFronteggId(userModel, 'uuid-xxx');
+ * const user = await getUserByFusionauthId(userModel, 'uuid-xxx');
  * ```
  */
-export async function getUserByFronteggId(
+export async function getUserByFusionauthId(
   userModel: Model<User>,
-  fronteggUserId: string
+  fusionauthUserId: string
 ): Promise<User | null> {
-  const user = await userModel.findOne({ fronteggUserId }).lean();
+  const user = await userModel.findOne({ fusionauthUserId }).lean();
   return user;
 }
 
@@ -132,10 +132,10 @@ export async function listUsers(
 }
 
 /**
- * Updates a user by their Frontegg User ID.
+ * Updates a user by their FusionAuth User ID.
  *
  * @param userModel - Mongoose User Model
- * @param fronteggUserId - Frontegg user ID (UUID)
+ * @param fusionauthUserId - FusionAuth user ID (UUID)
  * @param updates - Fields to update
  * @returns Updated user or null if not found
  *
@@ -149,12 +149,12 @@ export async function listUsers(
  */
 export async function updateUser(
   userModel: Model<User>,
-  fronteggUserId: string,
+  fusionauthUserId: string,
   updates: UpdateUserInput
 ): Promise<User | null> {
   const user = await userModel
     .findOneAndUpdate(
-      { fronteggUserId },
+      { fusionauthUserId },
       { $set: updates },
       { new: true, runValidators: true }
     )
@@ -192,7 +192,7 @@ export async function updateUserById(
  * Does not delete the user from the database.
  *
  * @param userModel - Mongoose User Model
- * @param fronteggUserId - Frontegg user ID (UUID)
+ * @param fusionauthUserId - FusionAuth user ID (UUID)
  * @returns Archived user or null if not found
  *
  * Usage:
@@ -202,9 +202,9 @@ export async function updateUserById(
  */
 export async function archiveUser(
   userModel: Model<User>,
-  fronteggUserId: string
+  fusionauthUserId: string
 ): Promise<User | null> {
-  return updateUser(userModel, fronteggUserId, { status: 'archived' } as UpdateUserInput);
+  return updateUser(userModel, fusionauthUserId, { status: 'archived' } as UpdateUserInput);
 }
 
 /**
@@ -214,14 +214,14 @@ export async function archiveUser(
  * Prefer using archiveUser() for soft deletes.
  *
  * @param userModel - Mongoose User Model
- * @param fronteggUserId - Frontegg user ID (UUID)
+ * @param fusionauthUserId - FusionAuth user ID (UUID)
  * @returns True if deleted, false if not found
  */
 export async function deleteUser(
   userModel: Model<User>,
-  fronteggUserId: string
+  fusionauthUserId: string
 ): Promise<boolean> {
-  const result = await userModel.deleteOne({ fronteggUserId });
+  const result = await userModel.deleteOne({ fusionauthUserId });
   return result.deletedCount > 0;
 }
 
@@ -229,7 +229,7 @@ export async function deleteUser(
  * Adds a user to an organization.
  *
  * @param userModel - Mongoose User Model
- * @param fronteggUserId - Frontegg user ID (UUID)
+ * @param fusionauthUserId - FusionAuth user ID (UUID)
  * @param organizationId - Organization MongoDB ObjectId
  * @returns Updated user or null if not found
  *
@@ -240,12 +240,12 @@ export async function deleteUser(
  */
 export async function addUserToOrganization(
   userModel: Model<User>,
-  fronteggUserId: string,
+  fusionauthUserId: string,
   organizationId: string
 ): Promise<User | null> {
   const user = await userModel
     .findOneAndUpdate(
-      { fronteggUserId },
+      { fusionauthUserId },
       { $addToSet: { organizationIds: organizationId } },
       { new: true, runValidators: true }
     )
@@ -258,18 +258,18 @@ export async function addUserToOrganization(
  * Removes a user from an organization.
  *
  * @param userModel - Mongoose User Model
- * @param fronteggUserId - Frontegg user ID (UUID)
+ * @param fusionauthUserId - FusionAuth user ID (UUID)
  * @param organizationId - Organization MongoDB ObjectId
  * @returns Updated user or null if not found
  */
 export async function removeUserFromOrganization(
   userModel: Model<User>,
-  fronteggUserId: string,
+  fusionauthUserId: string,
   organizationId: string
 ): Promise<User | null> {
   const user = await userModel
     .findOneAndUpdate(
-      { fronteggUserId },
+      { fusionauthUserId },
       { $pull: { organizationIds: organizationId } },
       { new: true, runValidators: true }
     )

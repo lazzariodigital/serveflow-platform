@@ -13,11 +13,11 @@ export interface User extends BaseDocument {
   // IDENTIDAD - Vínculos externos
   // ════════════════════════════════════════════════════════════════
 
-  fronteggUserId: string; // ID único en Frontegg
+  fusionauthUserId: string; // ID único en FusionAuth
   unifiedId?: string; // ID de @serveflow/identity (para WhatsApp, etc.)
 
   // ════════════════════════════════════════════════════════════════
-  // DATOS BÁSICOS - Sincronizados desde Frontegg
+  // DATOS BÁSICOS - Sincronizados desde FusionAuth
   // ════════════════════════════════════════════════════════════════
 
   email: string;
@@ -26,7 +26,7 @@ export interface User extends BaseDocument {
   imageUrl?: string;
 
   // ════════════════════════════════════════════════════════════════
-  // DATOS ADICIONALES - Solo en MongoDB (Clerk no los tiene)
+  // DATOS ADICIONALES - Solo en MongoDB (FusionAuth no los tiene)
   // ════════════════════════════════════════════════════════════════
 
   phoneNumber?: string; // Para WhatsApp/SMS (E.164: +34666555444)
@@ -46,7 +46,7 @@ export interface User extends BaseDocument {
   // ════════════════════════════════════════════════════════════════
 
   status: UserStatus;
-  isVerified: boolean; // Email verificado en Frontegg
+  isVerified: boolean; // Email verificado en FusionAuth
 
   // ════════════════════════════════════════════════════════════════
   // PREFERENCIAS
@@ -99,7 +99,7 @@ export interface User extends BaseDocument {
 
 export interface CreateUserInput {
   // Identidad
-  fronteggUserId: string;
+  fusionauthUserId: string;
   email: string;
   firstName: string;
   lastName: string;

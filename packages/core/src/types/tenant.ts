@@ -130,7 +130,8 @@ export interface Tenant extends BaseDocument {
   // Phase 1: Core (MVP)
   slug: string;
   name: string;
-  fronteggTenantId: string;
+  fusionauthTenantId: string;
+  fusionauthApplicationId: string;
   database: TenantDatabase;
   company: TenantCompany;
   contact: Contact;
@@ -157,12 +158,8 @@ export interface Tenant extends BaseDocument {
 export interface TenantMVP extends BaseDocument {
   slug: string;
   name: string;
-  fronteggTenantId: string;
-  // Frontegg configuration for multi-tenant white-label
-  fronteggConfig?: {
-    baseUrl: string;  // Tenant's Frontegg environment URL
-    clientId: string; // Tenant's Frontegg client ID
-  };
+  fusionauthTenantId: string;
+  fusionauthApplicationId: string;
   database: TenantDatabase;
   company: TenantCompany;
   contact: Contact;
@@ -179,12 +176,9 @@ export interface TenantMVP extends BaseDocument {
 export interface CreateTenantInput {
   slug: string;
   name: string;
-  fronteggTenantId: string;
+  fusionauthTenantId: string;
+  fusionauthApplicationId: string;
   ownerEmail: string;
-  fronteggConfig?: {
-    baseUrl: string;
-    clientId: string;
-  };
   company: TenantCompany;
   contact: Pick<Contact, 'email' | 'phone'>;
   settings?: Partial<TenantSettings>;

@@ -27,7 +27,7 @@ export class User implements Omit<UserType, 'createdAt' | 'updatedAt'> {
   // ════════════════════════════════════════════════════════════════
 
   @Prop({ required: true, unique: true, index: true })
-  fronteggUserId!: string;
+  fusionauthUserId!: string;
 
   @Prop({ required: true, unique: true, lowercase: true, index: true })
   email!: string;

@@ -4,7 +4,17 @@
       "Bash(dir /s \"C:\\Users\\asier\\Dev\\serveflow\\platform\\packages\\db\\src\")",
       "Bash(dir \"C:\\Users\\asier\\Dev\\serveflow\\repo\\backup\\apps\\tenant-dashboard\\src\" /s /b)",
       "Bash(find:*)",
-      "Bash(dir /s /b C:UsersasierDevserveflowrepobackupappstenant-dashboardsrctheme)"
+      "Bash(dir /s /b C:UsersasierDevserveflowrepobackupappstenant-dashboardsrctheme)",
+      "Bash(xargs ls:*)",
+      "Bash(dir:*)",
+      "Bash(cat:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm install:*)",
+      "Bash(del appstenantdashboardtsconfig.tsbuildinfo)",
+      "Bash(npx nx run:*)"
     ],
     "deny": [],
     "ask": []

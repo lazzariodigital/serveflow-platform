@@ -103,24 +103,24 @@ export async function resolveTenantFromHost(
 }
 
 /**
- * Resolves tenant from Frontegg tenant ID
+ * Resolves tenant from FusionAuth tenant ID
  */
-export async function resolveTenantByFronteggId(
-  fronteggTenantId: string
+export async function resolveTenantByFusionauthId(
+  fusionauthTenantId: string
 ): Promise<TenantResolutionResult> {
   try {
     const systemDb = await getSystemDb();
     const tenantsCollection = systemDb.collection<TenantMVP>('tenants');
 
     const tenant = await tenantsCollection.findOne({
-      fronteggTenantId,
+      fusionauthTenantId,
       status: 'active',
     });
 
     if (!tenant) {
       return {
         tenant: null,
-        error: `Tenant not found for Frontegg tenant: ${fronteggTenantId}`,
+        error: `Tenant not found for FusionAuth tenant: ${fusionauthTenantId}`,
       };
     }
 
@@ -133,6 +133,3 @@ export async function resolveTenantByFronteggId(
     };
   }
 }
-
-// Legacy alias for backwards compatibility
-export const resolveTenantByClerkOrgId = resolveTenantByFronteggId;

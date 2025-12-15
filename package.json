@@ -15,6 +15,7 @@
     "@fontsource/barlow": "^5.1.1",
     "@frontegg/nextjs": "^9.2.9",
     "@frontegg/rest-api": "^7.79.0",
+    "@fusionauth/typescript-client": "^1.61.0",
     "@grpc/grpc-js": "^1.14.2",
     "@iconify/react": "^6.0.2",
     "@mui/lab": "^7.0.0-beta.16",

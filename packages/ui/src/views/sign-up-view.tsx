@@ -12,7 +12,7 @@ import { Form, Field } from '../components/hook-form';
 import { FormHead } from '../components/form-head';
 import { FormDivider } from '../components/form-divider';
 import { FormSocials } from '../components/form-socials';
-import { useFronteggAuth } from '../hooks/use-frontegg-auth';
+import { useFusionAuth } from '../hooks/use-fusionauth';
 
 // ----------------------------------------------------------------------
 
@@ -33,7 +33,7 @@ export function SignUpView({
   redirectPath = '/',
 }: SignUpViewProps) {
   const router = useRouter();
-  const { signUp, loginWithGoogle, isLoading } = useFronteggAuth();
+  const { signUp, loginWithGoogle, isLoading } = useFusionAuth();
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
@@ -54,15 +54,12 @@ export function SignUpView({
       const result = await signUp({
         email: data.email,
         password: data.password,
-        name: `${data.firstName} ${data.lastName}`.trim(),
-        metadata: {
-          firstName: data.firstName,
-          lastName: data.lastName,
-        },
+        firstName: data.firstName,
+        lastName: data.lastName,
       });
 
-      // If signup returns tokens (auto-login), redirect immediately
-      if (result.accessToken) {
+      // If signup returns token (auto-login), redirect immediately
+      if (result.token) {
         router.push(redirectPath);
         router.refresh();
         return;
@@ -78,8 +75,8 @@ export function SignUpView({
         router.push(signInPath);
       }, 3000);
     } catch (error: unknown) {
-      const fronteggError = error as { message?: string };
-      setErrorMsg(fronteggError.message || 'Error al crear la cuenta. Por favor, inténtalo de nuevo.');
+      const authError = error as { message?: string };
+      setErrorMsg(authError.message || 'Error al crear la cuenta. Por favor, inténtalo de nuevo.');
     }
   });
 

@@ -1,7 +1,7 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 
 import { APP_GUARD } from '@nestjs/core';
-import { FronteggAuthGuard } from '@serveflow/auth/server';
+import { FusionAuthGuard } from '@serveflow/auth/server';
 import { ServeflowMongooseModule } from '@serveflow/db';
 import { TenantMiddleware } from '@serveflow/tenants';
 import { UsersModule } from '../users/users.module';
@@ -22,7 +22,7 @@ import { AppService } from './app.service';
     // Use @Public() decorator to make endpoints public
     {
       provide: APP_GUARD,
-      useClass: FronteggAuthGuard,
+      useClass: FusionAuthGuard,
     },
   ],
 })

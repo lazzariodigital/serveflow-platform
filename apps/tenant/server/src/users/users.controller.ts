@@ -29,7 +29,7 @@ import { UsersService } from './users.service';
 // Users Controller
 //
 // Endpoints para gestión de usuarios del tenant.
-// Todos los endpoints requieren autenticación (FronteggAuthGuard aplicado globalmente).
+// Todos los endpoints requieren autenticación (FusionAuthGuard aplicado globalmente).
 //
 // MIGRACIÓN MONGOOSE: Ahora extrae userModel del request (inyectado por TenantMiddleware)
 // ════════════════════════════════════════════════════════════════
@@ -51,9 +51,13 @@ export class UsersController {
     @Body(new ZodValidationPipe(CreateUserRequestSchema)) dto: CreateUserRequest
   ) {
     const { userModel, tenant } = req;
-    const fronteggTenantId = tenant.fronteggTenantId;
 
-    const user = await this.usersService.create(userModel, fronteggTenantId, dto);
+    const user = await this.usersService.create(
+      userModel,
+      tenant.fusionauthTenantId,
+      tenant.fusionauthApplicationId,
+      dto
+    );
 
     return {
       success: true,
@@ -95,9 +99,9 @@ export class UsersController {
   async getMe(@Req() req: TenantRequest, @CurrentUser() user: AuthenticatedUser) {
     const { userModel, tenant } = req;
 
-    console.log(`[UsersController.getMe] fronteggUserId: ${user.fronteggUserId}, tenant: ${tenant?.slug}`);
+    console.log(`[UsersController.getMe] fusionauthUserId: ${user.fusionauthUserId}, tenant: ${tenant?.slug}`);
 
-    const dbUser = await this.usersService.findByFronteggId(userModel, user.fronteggUserId);
+    const dbUser = await this.usersService.findByFusionauthId(userModel, user.fusionauthUserId);
 
     console.log(`[UsersController.getMe] dbUser found: ${!!dbUser}`);
 
@@ -108,14 +112,14 @@ export class UsersController {
   }
 
   /**
-   * GET /api/users/:fronteggUserId
-   * Obtiene un usuario específico por su Frontegg User ID.
+   * GET /api/users/:fusionauthUserId
+   * Obtiene un usuario específico por su FusionAuth User ID.
    */
-  @Get(':fronteggUserId')
-  async findOne(@Req() req: TenantRequest, @Param('fronteggUserId') fronteggUserId: string) {
+  @Get(':fusionauthUserId')
+  async findOne(@Req() req: TenantRequest, @Param('fusionauthUserId') fusionauthUserId: string) {
     const { userModel } = req;
 
-    const user = await this.usersService.findByFronteggId(userModel, fronteggUserId);
+    const user = await this.usersService.findByFusionauthId(userModel, fusionauthUserId);
 
     return {
       success: true,
@@ -124,19 +128,19 @@ export class UsersController {
   }
 
   /**
-   * PUT /api/users/:fronteggUserId
+   * PUT /api/users/:fusionauthUserId
    * Actualiza un usuario.
    * Solo admins pueden actualizar usuarios.
    */
-  @Put(':fronteggUserId')
+  @Put(':fusionauthUserId')
   async update(
     @Req() req: TenantRequest,
-    @Param('fronteggUserId') fronteggUserId: string,
+    @Param('fusionauthUserId') fusionauthUserId: string,
     @Body(new ZodValidationPipe(UpdateUserRequestSchema)) dto: UpdateUserRequest
   ) {
-    const { userModel, tenant } = req;
+    const { userModel } = req;
 
-    const user = await this.usersService.update(userModel, fronteggUserId, dto, tenant.fronteggTenantId);
+    const user = await this.usersService.update(userModel, fusionauthUserId, dto);
 
     return {
       success: true,
@@ -146,15 +150,15 @@ export class UsersController {
   }
 
   /**
-   * DELETE /api/users/:fronteggUserId/archive
+   * DELETE /api/users/:fusionauthUserId/archive
    * Archiva un usuario (soft delete).
    */
-  @Delete(':fronteggUserId/archive')
+  @Delete(':fusionauthUserId/archive')
   @HttpCode(HttpStatus.OK)
-  async archive(@Req() req: TenantRequest, @Param('fronteggUserId') fronteggUserId: string) {
+  async archive(@Req() req: TenantRequest, @Param('fusionauthUserId') fusionauthUserId: string) {
     const { userModel } = req;
 
-    const user = await this.usersService.archive(userModel, fronteggUserId);
+    const user = await this.usersService.archive(userModel, fusionauthUserId);
 
     return {
       success: true,
@@ -164,16 +168,16 @@ export class UsersController {
   }
 
   /**
-   * DELETE /api/users/:fronteggUserId
+   * DELETE /api/users/:fusionauthUserId
    * Elimina permanentemente un usuario.
    * ⚠️ OPERACIÓN IRREVERSIBLE
    */
-  @Delete(':fronteggUserId')
+  @Delete(':fusionauthUserId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async remove(@Req() req: TenantRequest, @Param('fronteggUserId') fronteggUserId: string) {
-    const { userModel, tenant } = req;
+  async remove(@Req() req: TenantRequest, @Param('fusionauthUserId') fusionauthUserId: string) {
+    const { userModel } = req;
 
-    await this.usersService.remove(userModel, fronteggUserId, tenant.fronteggTenantId);
+    await this.usersService.remove(userModel, fusionauthUserId);
 
     // No content response
     return;

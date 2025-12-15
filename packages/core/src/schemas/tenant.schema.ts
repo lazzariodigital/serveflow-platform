@@ -97,7 +97,8 @@ export const TenantMVPSchema = z.object({
     .max(50, 'Slug must be at most 50 characters')
     .regex(/^[a-z0-9-]+$/, 'Slug must be lowercase alphanumeric with hyphens'),
   name: z.string().min(1, 'Name is required'),
-  fronteggTenantId: z.string().min(1, 'Frontegg Tenant ID is required'),
+  fusionauthTenantId: z.string().min(1, 'FusionAuth Tenant ID is required'),
+  fusionauthApplicationId: z.string().min(1, 'FusionAuth Application ID is required'),
   database: TenantDatabaseSchema,
   company: TenantCompanySchema,
   contact: ContactSchema.pick({ email: true, phone: true }),
@@ -117,7 +118,8 @@ export const CreateTenantInputSchema = z.object({
     .max(50, 'Slug must be at most 50 characters')
     .regex(/^[a-z0-9-]+$/, 'Slug must be lowercase alphanumeric with hyphens'),
   name: z.string().min(1, 'Name is required'),
-  fronteggTenantId: z.string().min(1, 'Frontegg Tenant ID is required'),
+  fusionauthTenantId: z.string().min(1, 'FusionAuth Tenant ID is required'),
+  fusionauthApplicationId: z.string().min(1, 'FusionAuth Application ID is required'),
   ownerEmail: z.string().email('Invalid owner email'),
   company: TenantCompanySchema,
   contact: z.object({
@@ -193,7 +195,8 @@ export const CreateTenantRequestSchema = z.object({
     .max(50, 'Slug must be at most 50 characters')
     .regex(/^[a-z0-9-]+$/, 'Slug must be lowercase alphanumeric with hyphens'),
   name: z.string().min(1, 'Name is required'),
-  fronteggTenantId: z.string().optional(),
+  fusionauthTenantId: z.string().optional(),
+  fusionauthApplicationId: z.string().optional(),
   plan: z.enum(['free', 'starter', 'pro', 'enterprise']).optional().default('free'),
   branding: z.object({
     logoUrl: z.string().url().optional(),

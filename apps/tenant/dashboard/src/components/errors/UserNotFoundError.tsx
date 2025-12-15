@@ -4,7 +4,7 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
-import { useAuth } from '@frontegg/nextjs';
+import { useFusionAuth } from '@serveflow/ui';
 import { useRouter } from 'next/navigation';
 import { useCallback } from 'react';
 import { PageNotFoundIllustration } from '../../assets/illustrations';
@@ -18,7 +18,7 @@ interface UserNotFoundErrorProps {
 export function UserNotFoundError({
   message = 'Tu cuenta no está registrada en el sistema. Por favor, contacta al administrador para obtener acceso.'
 }: UserNotFoundErrorProps) {
-  const { logout } = useAuth();
+  const { logout } = useFusionAuth();
   const router = useRouter();
 
   const handleSignOut = useCallback(async () => {

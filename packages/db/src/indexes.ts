@@ -10,14 +10,15 @@ export async function createSystemIndexes(db: Db): Promise<void> {
   await Promise.all([
     // Tenants collection
     db.collection('tenants').createIndex({ slug: 1 }, { unique: true }),
-    db.collection('tenants').createIndex({ fronteggTenantId: 1 }, { unique: true, sparse: true }),
+    db.collection('tenants').createIndex({ fusionauthTenantId: 1 }, { unique: true }),
+    db.collection('tenants').createIndex({ fusionauthApplicationId: 1 }, { unique: true }),
     db.collection('tenants').createIndex({ 'company.taxId': 1 }, { unique: true }),
     db.collection('tenants').createIndex({ 'contact.email': 1 }),
     db.collection('tenants').createIndex({ status: 1 }),
     db.collection('tenants').createIndex({ 'advancedSettings.customDomain': 1 }, { sparse: true }),
 
-    // Global Users collection
-    db.collection('global_users').createIndex({ fronteggUserId: 1 }, { unique: true }),
+    // Global Users collection (clerkId for admin dashboard)
+    db.collection('global_users').createIndex({ clerkId: 1 }, { unique: true }),
     db.collection('global_users').createIndex({ email: 1 }, { unique: true }),
 
     // Billing collection
@@ -45,7 +46,7 @@ export async function createTenantIndexes(db: Db): Promise<void> {
     db.collection('organizations').createIndex({ isDefault: 1 }),
 
     // Users collection
-    db.collection('users').createIndex({ fronteggUserId: 1 }, { unique: true }),
+    db.collection('users').createIndex({ fusionauthUserId: 1 }, { unique: true }),
     db.collection('users').createIndex({ email: 1 }),
     db.collection('users').createIndex({ phone: 1 }, { sparse: true }),
 

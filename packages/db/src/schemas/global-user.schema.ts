@@ -20,7 +20,7 @@ export type GlobalUserDocument = HydratedDocument<GlobalUser>;
 })
 export class GlobalUser implements Omit<GlobalUserType, 'createdAt' | 'updatedAt'> {
   @Prop({ required: true, unique: true, index: true })
-  fronteggUserId!: string;
+  fusionauthUserId!: string;
 
   @Prop({ required: true, unique: true, lowercase: true, index: true })
   email!: string;
