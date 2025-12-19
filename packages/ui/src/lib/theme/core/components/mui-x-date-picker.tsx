@@ -107,10 +107,11 @@ const defaultProps = {
 /* **********************************************************************
  * 🧩 Components
  * **********************************************************************/
-const MuiPickersLayout: Components<Theme>['MuiPickersLayout'] = {
+// MUI X Date Picker components - types are inferred when spread into export
+const MuiPickersLayout = {
   // ▼▼▼▼▼▼▼▼ 🎨 STYLE ▼▼▼▼▼▼▼▼
   styleOverrides: {
-    actionBar: ({ theme }) => ({
+    actionBar: ({ theme }: { theme: Theme }) => ({
       padding: theme.spacing(2),
       '& > :not(:first-of-type)': {
         marginLeft: theme.spacing(1),
@@ -128,25 +129,25 @@ const MuiPickersLayout: Components<Theme>['MuiPickersLayout'] = {
   },
 };
 
-const MuiPickersPopper: Components<Theme>['MuiPickersPopper'] = {
+const MuiPickersPopper = {
   // ▼▼▼▼▼▼▼▼ 🎨 STYLE ▼▼▼▼▼▼▼▼
   styleOverrides: {
-    paper: ({ theme }) => ({
+    paper: ({ theme }: { theme: Theme }) => ({
       boxShadow: theme.vars.customShadows.dropdown,
       borderRadius: Number(theme.shape.borderRadius) * 1.5,
     }),
   },
 };
 
-const MuiDateTimePickerTabs: Components<Theme>['MuiDateTimePickerTabs'] = {
+const MuiDateTimePickerTabs = {
   // ▼▼▼▼▼▼▼▼ ⚙️ PROPS ▼▼▼▼▼▼▼▼
   defaultProps: { ...defaultProps.tabs },
 };
 
-const MuiClock: Components<Theme>['MuiClock'] = {
+const MuiClock = {
   // ▼▼▼▼▼▼▼▼ 🎨 STYLE ▼▼▼▼▼▼▼▼
   styleOverrides: {
-    clock: ({ theme }) => ({
+    clock: ({ theme }: { theme: Theme }) => ({
       backgroundColor: theme.vars.palette.background.neutral,
     }),
   },
@@ -175,18 +176,18 @@ const inputComponents: Components<Theme> = {
   },
   MuiPickersInputBase: {
     styleOverrides: {
-      root: ({ theme }) => ({
+      root: ({ theme }: { theme: Theme }) => ({
         ...inputBaseStyles.root('picker', theme, {
           input: pickersSectionListClasses.root,
           disabled: pickersInputBaseClasses.disabled,
         }),
       }),
-      sectionsContainer: ({ theme }) => ({
+      sectionsContainer: ({ theme }: { theme: Theme }) => ({
         ...inputBaseStyles.input('picker', theme),
         variants: [
           ...inputBaseVariants.input,
           {
-            props: (props) => !props.isFieldFocused && !!props.isFieldValueEmpty,
+            props: (props: any) => !props.isFieldFocused && !!props.isFieldValueEmpty,
             style: {
               opacity: 1,
               color: theme.vars.palette.text.disabled,
@@ -198,14 +199,14 @@ const inputComponents: Components<Theme> = {
   },
   MuiPickersInput: {
     styleOverrides: {
-      root: ({ theme }) => inputStyles.root(theme),
+      root: ({ theme }: { theme: Theme }) => inputStyles.root(theme),
     },
   },
   MuiPickersOutlinedInput: {
     styleOverrides: {
-      root: ({ theme }) => outlinedInputStyles.root(theme, pickersOutlinedInputClasses),
-      sectionsContainer: { variants: [...outlinedInputVariants.input] },
-      notchedOutline: ({ theme }) => outlinedInputStyles.notchedOutline(theme),
+      root: ({ theme }: { theme: Theme }) => outlinedInputStyles.root(theme, pickersOutlinedInputClasses),
+      sectionsContainer: { variants: [...outlinedInputVariants.input] } as any,
+      notchedOutline: ({ theme }: { theme: Theme }) => outlinedInputStyles.notchedOutline(theme),
     },
   },
   MuiPickersFilledInput: {
@@ -213,8 +214,8 @@ const inputComponents: Components<Theme> = {
       disableUnderline: true,
     },
     styleOverrides: {
-      root: ({ theme }) => filledInputStyles.root(theme, pickersFilledInputClasses),
-      sectionsContainer: { variants: [...filledInputVariants.input] },
+      root: ({ theme }: { theme: Theme }) => filledInputStyles.root(theme, pickersFilledInputClasses),
+      sectionsContainer: { variants: [...filledInputVariants.input] } as any,
     },
   },
 };
@@ -286,7 +287,8 @@ const dateTimePickerComponents: Components<Theme> = {
 /* **********************************************************************
  * 🚀 Export
  * **********************************************************************/
-export const datePicker: Components<Theme> = {
+// Cast to Components<Theme> - MUI X picker components have separate type definitions
+export const datePicker = {
   ...toolbarComponents,
   MuiClock,
   MuiPickersPopper,
@@ -297,4 +299,4 @@ export const datePicker: Components<Theme> = {
   ...datePickerComponents,
   ...timePickerComponents,
   ...dateTimePickerComponents,
-};
+} as Components<Theme>;

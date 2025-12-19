@@ -88,6 +88,25 @@ export const TenantDatabaseSchema = z.object({
 });
 
 // ════════════════════════════════════════════════════════════════
+// Auth Providers Schema (Social Login)
+// ════════════════════════════════════════════════════════════════
+
+export const TenantAuthProviderGoogleSchema = z.object({
+  clientId: z.string(),
+  enabled: z.boolean(),
+});
+
+export const TenantAuthProviderGithubSchema = z.object({
+  clientId: z.string(),
+  enabled: z.boolean(),
+});
+
+export const TenantAuthProvidersSchema = z.object({
+  google: TenantAuthProviderGoogleSchema.optional(),
+  github: TenantAuthProviderGithubSchema.optional(),
+});
+
+// ════════════════════════════════════════════════════════════════
 // Full Tenant Schema (MVP)
 // ════════════════════════════════════════════════════════════════
 
@@ -106,6 +125,8 @@ export const TenantMVPSchema = z.object({
   branding: TenantBrandingSchema,
   theming: TenantThemingSchema,
   status: z.enum(['active', 'suspended']),
+  // Social login configuration (optional)
+  authProviders: TenantAuthProvidersSchema.optional(),
 });
 
 // ════════════════════════════════════════════════════════════════

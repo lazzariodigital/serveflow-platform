@@ -1,12 +1,12 @@
 'use client';
 
-import type { NavItemBaseProps } from '../../components/nav-section/types';
+import type { NavItemDataProps } from '../../components/nav-section/types';
 import { useMemo } from 'react';
 
 // ----------------------------------------------------------------------
 
 // Extended nav item with permission config
-export interface NavItemWithPermission extends Omit<NavItemBaseProps, 'children'> {
+export interface NavItemWithPermission extends Omit<NavItemDataProps, 'children'> {
   permission?: {
     resource: string;
     action: string;
@@ -40,7 +40,7 @@ interface PermissionFilteredNavProps {
    * Whether permissions are loading. If true, returns empty array.
    */
   loading?: boolean;
-  children: (filteredData: { subheader?: string; items: NavItemBaseProps[] }[]) => React.ReactNode;
+  children: (filteredData: { subheader?: string; items: NavItemDataProps[] }[]) => React.ReactNode;
 }
 
 export function PermissionFilteredNav({
@@ -52,7 +52,7 @@ export function PermissionFilteredNav({
   const filteredData = useMemo(() => {
     if (loading) return [];
 
-    const filterNavItem = (item: NavItemWithPermission): NavItemBaseProps | null => {
+    const filterNavItem = (item: NavItemWithPermission): NavItemDataProps | null => {
       // If item has permission requirement and we have a check function, check it
       if (item.permission && hasPermission) {
         const hasAccess = hasPermission(
@@ -66,7 +66,7 @@ export function PermissionFilteredNav({
       if (item.children) {
         const filteredChildren = item.children
           .map(filterNavItem)
-          .filter((child): child is NavItemBaseProps => child !== null);
+          .filter((child): child is NavItemDataProps => child !== null);
 
         // If no children passed the filter, hide the parent too
         if (filteredChildren.length === 0) return null;
@@ -84,10 +84,10 @@ export function PermissionFilteredNav({
       return baseItem;
     };
 
-    const filterNavGroup = (group: NavGroupWithPermission): { subheader?: string; items: NavItemBaseProps[] } | null => {
+    const filterNavGroup = (group: NavGroupWithPermission): { subheader?: string; items: NavItemDataProps[] } | null => {
       const filteredItems = group.items
         .map(filterNavItem)
-        .filter((item): item is NavItemBaseProps => item !== null);
+        .filter((item): item is NavItemDataProps => item !== null);
 
       // If no items in the group passed the filter, hide the group
       if (filteredItems.length === 0) return null;
@@ -100,7 +100,7 @@ export function PermissionFilteredNav({
 
     return data
       .map(filterNavGroup)
-      .filter((group): group is { subheader?: string; items: NavItemBaseProps[] } => group !== null);
+      .filter((group): group is { subheader?: string; items: NavItemDataProps[] } => group !== null);
   }, [data, hasPermission, loading]);
 
   return <>{children(filteredData)}</>;
@@ -115,11 +115,11 @@ export function usePermissionFilteredNav(
   data: NavGroupWithPermission[],
   hasPermission?: PermissionCheckFn,
   loading?: boolean
-): { subheader?: string; items: NavItemBaseProps[] }[] {
+): { subheader?: string; items: NavItemDataProps[] }[] {
   return useMemo(() => {
     if (loading) return [];
 
-    const filterNavItem = (item: NavItemWithPermission): NavItemBaseProps | null => {
+    const filterNavItem = (item: NavItemWithPermission): NavItemDataProps | null => {
       // If item has permission requirement and we have a check function, check it
       if (item.permission && hasPermission) {
         const hasAccess = hasPermission(
@@ -133,7 +133,7 @@ export function usePermissionFilteredNav(
       if (item.children) {
         const filteredChildren = item.children
           .map(filterNavItem)
-          .filter((child): child is NavItemBaseProps => child !== null);
+          .filter((child): child is NavItemDataProps => child !== null);
 
         // If no children passed the filter, hide the parent too
         if (filteredChildren.length === 0) return null;
@@ -151,10 +151,10 @@ export function usePermissionFilteredNav(
       return baseItem;
     };
 
-    const filterNavGroup = (group: NavGroupWithPermission): { subheader?: string; items: NavItemBaseProps[] } | null => {
+    const filterNavGroup = (group: NavGroupWithPermission): { subheader?: string; items: NavItemDataProps[] } | null => {
       const filteredItems = group.items
         .map(filterNavItem)
-        .filter((item): item is NavItemBaseProps => item !== null);
+        .filter((item): item is NavItemDataProps => item !== null);
 
       // If no items in the group passed the filter, hide the group
       if (filteredItems.length === 0) return null;
@@ -167,6 +167,6 @@ export function usePermissionFilteredNav(
 
     return data
       .map(filterNavGroup)
-      .filter((group): group is { subheader?: string; items: NavItemBaseProps[] } => group !== null);
+      .filter((group): group is { subheader?: string; items: NavItemDataProps[] } => group !== null);
   }, [data, hasPermission, loading]);
 }

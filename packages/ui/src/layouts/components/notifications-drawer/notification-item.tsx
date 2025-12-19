@@ -31,12 +31,12 @@ const DEFAULT_ASSETS_DIR = '/assets';
 
 export type NotificationItemProps = {
   id: string;
-  type: string;
+  type?: string;
   title: string;
-  category: string;
-  isUnRead: boolean;
-  avatarUrl: string | null;
-  createdAt: string | number | null;
+  category?: string;
+  isUnRead?: boolean;
+  avatarUrl?: string | null;
+  createdAt?: string | number | Date | null;
 };
 
 export function NotificationItem({ notification }: { notification: NotificationItemProps }) {
@@ -81,7 +81,7 @@ export function NotificationItem({ notification }: { notification: NotificationI
             />
           }
         >
-          {fToNow(notification.createdAt)}
+          {notification.createdAt && fToNow(notification.createdAt)}
           {notification.category}
         </Stack>
       }

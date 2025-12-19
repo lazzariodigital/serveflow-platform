@@ -80,6 +80,22 @@ export class Tenant {
   @Prop({ type: Object })
   metadata?: Record<string, unknown>;
 
+  /**
+   * Social auth configuration per tenant
+   * Each tenant can have their own Google OAuth credentials
+   */
+  @Prop({ type: Object })
+  authProviders?: {
+    google?: {
+      clientId: string;  // Google OAuth Client ID for this tenant
+      enabled: boolean;
+    };
+    github?: {
+      clientId: string;
+      enabled: boolean;
+    };
+  };
+
   createdAt!: Date;
   updatedAt!: Date;
 }

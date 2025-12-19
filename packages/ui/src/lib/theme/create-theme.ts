@@ -63,10 +63,10 @@ export function createTheme({
   const coreWithMode = {
     ...updatedCore,
     cssVariables: {
-      ...updatedCore.cssVariables,
+      ...(typeof updatedCore.cssVariables === 'object' ? updatedCore.cssVariables : {}),
       defaultMode: themeMode,
     },
-  };
+  } as ThemeOptions;
 
   // Create and return the final theme
   const theme = createMuiTheme(coreWithMode, updatedComponents, localeComponents, themeOverrides);

@@ -1,4 +1,4 @@
-import type { NavSectionProps, NavItemBaseProps } from '../../../components/nav-section';
+import type { NavSectionProps, NavItemDataProps } from '../../../components/nav-section';
 
 // ----------------------------------------------------------------------
 
@@ -57,13 +57,13 @@ export function applyFilter({ inputData, query }: ApplyFilterProps) {
 
 // ----------------------------------------------------------------------
 
-export function splitPath(array: NavItemBaseProps[], key: string) {
+export function splitPath(array: NavItemDataProps[], key: string) {
   let stack = array.map((item) => ({ path: [item.title], currItem: item }));
 
   while (stack.length) {
     const { path, currItem } = stack.pop() as {
       path: string[];
-      currItem: NavItemBaseProps;
+      currItem: NavItemDataProps;
     };
 
     if (currItem.path === key) {
@@ -72,7 +72,7 @@ export function splitPath(array: NavItemBaseProps[], key: string) {
 
     if (currItem.children?.length) {
       stack = stack.concat(
-        currItem.children.map((item: NavItemBaseProps) => ({
+        currItem.children.map((item: NavItemDataProps) => ({
           path: path.concat(item.title),
           currItem: item,
         }))

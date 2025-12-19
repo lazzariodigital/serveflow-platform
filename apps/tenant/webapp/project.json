@@ -1,0 +1,17 @@
+{
+  "name": "tenant-webapp",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/tenant/webapp/src",
+  "projectType": "application",
+  "tags": [],
+  "targets": {
+    "dev": {
+      "executor": "@nx/next:server",
+      "options": {
+       "buildTarget": "tenant-webapp:build",
+        "dev": true,
+        "port": 3001
+      }
+    }
+  }
+}

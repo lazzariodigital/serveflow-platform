@@ -14,7 +14,13 @@
       "Bash(npx tsc:*)",
       "Bash(npm install:*)",
       "Bash(del appstenantdashboardtsconfig.tsbuildinfo)",
-      "Bash(npx nx run:*)"
+      "Bash(npx nx run:*)",
+      "Bash(npx nx build:*)",
+      "Bash(npm i:*)",
+      "Bash(rm:*)",
+      "Bash(del /f /q appstenantwebapp.nextlock)",
+      "Bash(timeout 15 npx nx dev:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []

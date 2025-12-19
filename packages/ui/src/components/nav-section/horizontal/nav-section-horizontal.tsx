@@ -31,7 +31,7 @@ export function NavSectionHorizontal({
   return (
     <Scrollbar
       sx={{ height: 1 }}
-      slotProps={{ contentSx: { height: 1, display: 'flex', alignItems: 'center' } }}
+      slotProps={{ content: { height: 1, display: 'flex', alignItems: 'center' } }}
     >
       <Nav
         className={mergeClasses([navSectionClasses.horizontal, className])}

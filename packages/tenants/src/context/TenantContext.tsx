@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
-import type { TenantMVP, TenantBranding, TenantTheming, TenantSettings } from '@serveflow/core';
+import type { TenantMVP, TenantBranding, TenantTheming, TenantSettings, TenantAuthProviders } from '@serveflow/core';
 
 // ════════════════════════════════════════════════════════════════
 // Tenant Context Types
@@ -16,6 +16,7 @@ export interface TenantContextValue {
   branding: TenantBranding | null;
   theming: TenantTheming | null;
   settings: TenantSettings | null;
+  authProviders: TenantAuthProviders | null;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -70,6 +71,7 @@ export function TenantProvider({
       branding: tenant?.branding ?? null,
       theming: tenant?.theming ?? null,
       settings: tenant?.settings ?? null,
+      authProviders: tenant?.authProviders ?? null,
     }),
     [tenant, isLoading, error]
   );

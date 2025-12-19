@@ -2,7 +2,11 @@ import { Injectable } from '@nestjs/common';
 
 @Injectable()
 export class AppService {
-  getData(): { message: string } {
-    return { message: 'Hello API' };
+  getData() {
+    return {
+      service: 'Serveflow Admin API',
+      version: '1.0.0',
+      docs: '/api/health',
+    };
   }
 }

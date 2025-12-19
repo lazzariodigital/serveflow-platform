@@ -119,7 +119,7 @@ export function AccountDrawer({ data = [], user, dashboardPath = '/dashboard', o
 
         <Scrollbar>
           <Stack alignItems="center" sx={{ pt: 8 }}>
-            {renderAvatar}
+            {renderAvatar()}
 
             <Typography variant="subtitle1" noWrap sx={{ mt: 2 }}>
               {user?.displayName}

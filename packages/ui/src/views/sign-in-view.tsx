@@ -8,12 +8,16 @@ import Link from '@mui/material/Link';
 import Alert from '@mui/material/Alert';
 import Typography from '@mui/material/Typography';
 import LoadingButton from '@mui/lab/LoadingButton';
+import IconButton from '@mui/material/IconButton';
+import InputAdornment from '@mui/material/InputAdornment';
+import { Iconify } from '../components/iconify';
 
 import { Form, Field } from '../components/hook-form';
 import { FormHead } from '../components/form-head';
 import { FormDivider } from '../components/form-divider';
 import { FormSocials } from '../components/form-socials';
 import { useFusionAuth } from '../hooks/use-fusionauth';
+import { useTenant, useTenantAuthProviders } from '@serveflow/tenants/react';
 
 // ----------------------------------------------------------------------
 
@@ -36,10 +40,21 @@ export function SignInView({
   redirectPath = '/',
 }: SignInViewProps) {
   const router = useRouter();
-  const { login, verifyTwoFactor, loginWithGoogle, isLoading } = useFusionAuth();
+  const { tenant } = useTenant();
+  const { login, verifyTwoFactor, completeGoogleLogin, isLoading } = useFusionAuth({
+    applicationId: tenant?.fusionauthApplicationId,
+    tenantId: tenant?.fusionauthTenantId,
+  });
+  const authProviders = useTenantAuthProviders();
   const [errorMsg, setErrorMsg] = useState('');
   const [needsTwoFactor, setNeedsTwoFactor] = useState(false);
   const [twoFactorId, setTwoFactorId] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+
+  // Get Google Client ID from tenant config (per-tenant OAuth)
+  const googleClientId = authProviders?.google?.enabled ? authProviders.google.clientId : undefined;
+  const showSocialLogin = !!googleClientId;
 
   const methods = useForm<SignInFormData>({
     defaultValues: { email: '', password: '' },
@@ -98,8 +113,51 @@ export function SignInView({
     }
   });
 
-  const handleGoogleSignIn = () => {
-    loginWithGoogle();
+  /**
+   * Handle Google Sign-In via SDK (recommended white-label approach)
+   * Receives the credential token from Google and completes login with FusionAuth
+   */
+  const handleGoogleCredential = async (credential: string) => {
+    setErrorMsg('');
+    setIsGoogleLoading(true);
+
+    try {
+      const result = await completeGoogleLogin(credential);
+
+      console.log('[SignIn] Google login result:', result);
+
+      // Check if user needs to complete registration
+      if (result.needsRegistration) {
+        // For now, redirect to sign-up or show a message
+        setErrorMsg('Tu cuenta de Google no está registrada. Por favor, regístrate primero.');
+        return;
+      }
+
+      // Check if 2FA is required
+      if (result.twoFactorId) {
+        setTwoFactorId(result.twoFactorId);
+        setNeedsTwoFactor(true);
+        return;
+      }
+
+      // Login successful, redirect
+      console.log('[SignIn] Google login successful, redirecting to:', redirectPath);
+      router.push(redirectPath);
+      router.refresh();
+    } catch (error: unknown) {
+      const authError = error as { message?: string };
+      setErrorMsg(authError.message || 'Error al iniciar sesión con Google');
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
+
+  /**
+   * Handle Google SDK errors
+   */
+  const handleGoogleError = (error: Error) => {
+    console.error('[SignIn] Google SDK error:', error);
+    setErrorMsg(error.message || 'Error con Google Sign-In');
   };
 
   // Two-factor authentication view
@@ -187,8 +245,23 @@ export function SignInView({
           <Field.Text
             name="password"
             label="Contraseña"
-            type="password"
+            type={showPassword ? 'text' : 'password'}
             autoComplete="current-password"
+            slotProps={{
+              input: {
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={() => setShowPassword(!showPassword)}
+                      edge="end"
+                      aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                    >
+                      <Iconify icon={showPassword ? 'solar:eye-bold' : 'solar:eye-closed-bold'} />
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              },
+            }}
           />
 
           <LoadingButton
@@ -204,9 +277,19 @@ export function SignInView({
         </Box>
       </Form>
 
-      <FormDivider />
+      {showSocialLogin && (
+        <>
+          <FormDivider />
 
-      <FormSocials onGoogleClick={handleGoogleSignIn} />
+          <FormSocials
+            googleClientId={googleClientId}
+            onGoogleCredential={handleGoogleCredential}
+            onGoogleError={handleGoogleError}
+            loading={isGoogleLoading}
+            disabled={isLoading}
+          />
+        </>
+      )}
     </>
   );
 }

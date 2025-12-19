@@ -16,7 +16,7 @@ export interface GlobalUser extends BaseDocument {
   // IDENTIDAD - Igual que User
   // ════════════════════════════════════════════════════════════════
 
-  clerkId: string; // ID único en Clerk
+  fusionauthUserId: string; // ID único en FusionAuth
   email: string;
   firstName: string;
   lastName: string;
@@ -37,7 +37,7 @@ export interface GlobalUser extends BaseDocument {
     tenantId: string; // ObjectId del tenant
     tenantSlug: string; // Para display/routing
     grantedAt: Date;
-    grantedBy: string; // clerkId de quien dio acceso
+    grantedBy: string; // fusionauthUserId de quien dio acceso
   }[];
 
   // ════════════════════════════════════════════════════════════════
@@ -52,7 +52,7 @@ export interface GlobalUser extends BaseDocument {
 // ════════════════════════════════════════════════════════════════
 
 export interface CreateGlobalUserInput {
-  clerkId: string;
+  fusionauthUserId: string;
   email: string;
   firstName: string;
   lastName: string;
@@ -80,5 +80,5 @@ export interface UpdateGlobalUserInput {
 export interface GrantTenantAccessInput {
   tenantId: string;
   tenantSlug: string;
-  grantedBy: string; // clerkId del admin que otorga acceso
+  grantedBy: string; // fusionauthUserId del admin que otorga acceso
 }

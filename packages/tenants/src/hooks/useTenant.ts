@@ -1,7 +1,7 @@
 'use client';
 
 import { useTenantContext } from '../context/TenantContext';
-import type { TenantMVP, TenantBranding, TenantTheming, TenantSettings } from '@serveflow/core';
+import type { TenantMVP, TenantBranding, TenantTheming, TenantSettings, TenantAuthProviders } from '@serveflow/core';
 
 // ════════════════════════════════════════════════════════════════
 // useTenant Hook
@@ -114,4 +114,27 @@ export function useTenantSettings(): TenantSettings | null {
 export function useTenantSlug(): string | null {
   const { slug } = useTenantContext();
   return slug;
+}
+
+// ════════════════════════════════════════════════════════════════
+// useTenantAuthProviders Hook
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Hook to access tenant auth providers (Google, GitHub, etc.).
+ *
+ * Usage:
+ * ```tsx
+ * function SocialLogin() {
+ *   const authProviders = useTenantAuthProviders();
+ *   const googleClientId = authProviders?.google?.clientId;
+ *
+ *   if (!googleClientId) return null;
+ *   return <GoogleSignInButton clientId={googleClientId} />;
+ * }
+ * ```
+ */
+export function useTenantAuthProviders(): TenantAuthProviders | null {
+  const { authProviders } = useTenantContext();
+  return authProviders;
 }

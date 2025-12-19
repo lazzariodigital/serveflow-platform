@@ -57,14 +57,17 @@ export class UsersService {
 
     try {
       // 2. Crear usuario en FusionAuth
+      // Si se proporciona password, se usa directamente
+      // Si no, se envía email para establecer contraseña
       const fusionauthUser = await createFusionAuthUser({
         email: dto.email,
+        password: dto.password, // Puede ser undefined
         firstName: dto.firstName,
         lastName: dto.lastName,
         tenantId: fusionauthTenantId,
         applicationId: fusionauthApplicationId,
-        roles: ['user'], // Default role
-        sendSetPasswordEmail: true, // Send email to set password
+        roles: ['client'], // Default role - must exist in the Application
+        sendSetPasswordEmail: !dto.password, // Solo enviar email si no hay password
       });
 
       // 3. Crear usuario en MongoDB

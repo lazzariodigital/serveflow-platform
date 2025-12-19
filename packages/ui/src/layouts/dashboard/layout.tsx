@@ -148,19 +148,6 @@ export function DashboardLayout({
           layoutQuery={layoutQuery}
           disableElevation={isNavVertical}
           slotProps={{
-            toolbar: {
-              sx: {
-                ...(isNavHorizontal && {
-                  bgcolor: 'var(--layout-nav-bg)',
-                  [`& .${iconButtonClasses.root}`]: {
-                    color: 'var(--layout-nav-text-secondary-color)',
-                  },
-                  [theme.breakpoints.up(layoutQuery)]: {
-                    height: 'var(--layout-nav-horizontal-height)',
-                  },
-                }),
-              },
-            },
             container: {
               maxWidth: false,
               sx: {

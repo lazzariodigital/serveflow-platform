@@ -17,7 +17,9 @@ import { Scrollbar } from '../../../components/scrollbar';
 import { SearchNotFound } from '../../../components/search-not-found';
 import SvgIcon from '@mui/material/SvgIcon';
 import { isExternalLink } from '../../../routes/utils';
+// @ts-expect-error no types available
 import match from 'autosuggest-highlight/match';
+// @ts-expect-error no types available
 import parse from 'autosuggest-highlight/parse';
 import { useBoolean } from '../../../hooks/use-boolean';
 import { useEventListener } from '../../../hooks/use-event-listener';

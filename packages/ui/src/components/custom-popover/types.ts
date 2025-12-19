@@ -30,3 +30,13 @@ export type CustomPopoverProps = PopoverProps & {
     paper?: PaperProps;
   };
 };
+
+// ----------------------------------------------------------------------
+
+export type UsePopoverReturn = {
+  open: boolean;
+  anchorEl: PopoverProps['anchorEl'];
+  onOpen: (event: React.MouseEvent<PopoverProps['anchorEl']>) => void;
+  onClose: () => void;
+  setAnchorEl: React.Dispatch<React.SetStateAction<PopoverProps['anchorEl']>>;
+};

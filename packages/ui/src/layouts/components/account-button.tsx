@@ -8,8 +8,8 @@ import { m } from 'framer-motion';
 // ----------------------------------------------------------------------
 
 export type AccountButtonProps = IconButtonProps & {
-  photoURL: string;
-  displayName: string;
+  photoURL?: string;
+  displayName?: string;
 };
 
 export function AccountButton({ photoURL, displayName, sx, ...other }: AccountButtonProps) {

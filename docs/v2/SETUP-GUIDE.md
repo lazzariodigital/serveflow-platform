@@ -4,7 +4,7 @@
 
 ### Software
 - Node.js v20+
-- pnpm v9+
+- npm v10+
 - MongoDB 7+ (local o Atlas)
 - Git
 
@@ -18,7 +18,7 @@
 
 ```bash
 cd repo
-pnpm install
+npm install
 ```
 
 ---
@@ -58,11 +58,23 @@ Crear archivo `.env` en la raiz del proyecto:
 MONGODB_URI=mongodb://localhost:27017
 
 # ═══════════════════════════════════════════════════════════════
-# CLERK AUTHENTICATION (opcional para desarrollo inicial)
-# Obtener en: https://dashboard.clerk.com
+# FUSIONAUTH (self-hosted)
 # ═══════════════════════════════════════════════════════════════
-CLERK_SECRET_KEY=sk_test_xxx
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_xxx
+FUSIONAUTH_URL=http://localhost:9011
+FUSIONAUTH_API_KEY=xxx
+FUSIONAUTH_ADMIN_TENANT_ID=xxx
+FUSIONAUTH_ADMIN_APPLICATION_ID=xxx
+
+# Public FusionAuth config (exposed to frontend)
+NEXT_PUBLIC_FUSIONAUTH_URL=http://localhost:9011
+
+# ═══════════════════════════════════════════════════════════════
+# GOOGLE OAUTH (optional - for social login)
+# ═══════════════════════════════════════════════════════════════
+# Get these from Google Cloud Console -> APIs & Services -> Credentials
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=xxx.apps.googleusercontent.com
+# The Identity Provider ID from FusionAuth (Settings -> Identity Providers -> Google)
+NEXT_PUBLIC_FUSIONAUTH_GOOGLE_IDP_ID=xxx
 
 # ═══════════════════════════════════════════════════════════════
 # DOMINIO BASE
@@ -72,9 +84,9 @@ NEXT_PUBLIC_BASE_DOMAIN=localhost
 # ═══════════════════════════════════════════════════════════════
 # URLs INTERNAS (defaults para desarrollo)
 # ═══════════════════════════════════════════════════════════════
-TENANT_API_URL=http://localhost:3001
-AI_ASSISTANT_URL=http://localhost:3010
-MCP_SERVER_URL=http://localhost:3011
+TENANT_API_URL=http://localhost:3100
+AI_ASSISTANT_URL=http://localhost:3200
+MCP_SERVER_URL=http://localhost:3201
 
 # ═══════════════════════════════════════════════════════════════
 # ENTORNO
@@ -110,7 +122,7 @@ sudo nano /etc/hosts
 ### 5.1 Crear base de datos del sistema
 
 ```bash
-pnpm ts-node scripts/init-system.ts
+npx ts-node scripts/init-system.ts
 ```
 
 Esto crea:
@@ -121,7 +133,7 @@ Esto crea:
 ### 5.2 Provisionar tenant de prueba
 
 ```bash
-pnpm ts-node scripts/provision-tenant.ts \
+npx ts-node scripts/provision-tenant.ts \
   --slug=demo \
   --name="Demo Club" \
   --email=demo@example.com
@@ -139,29 +151,29 @@ Esto crea:
 ### 6.1 API del Tenant (NestJS)
 
 ```bash
-pnpm nx serve tenant-api
+npx nx serve tenant-server
 ```
-- URL: http://localhost:3000/api
-- Con tenant: http://demo.localhost:3000/api
+- URL: http://localhost:3100/api
+- Con tenant: http://demo.localhost:3100/api
 
 ### 6.2 Dashboard del Tenant (Next.js)
 
 ```bash
-pnpm nx serve dashboard
+npx nx dev dashboard
 ```
-- URL: http://localhost:4200
-- Con tenant: http://demo.localhost:4200
+- URL: http://localhost:3000
+- Con tenant: http://demo.localhost:3000
 
 ### 6.3 Ejecutar ambos en paralelo
 
 Terminal 1:
 ```bash
-pnpm nx serve tenant-api
+npx nx serve tenant-server
 ```
 
 Terminal 2:
 ```bash
-pnpm nx serve dashboard
+npx nx dev dashboard
 ```
 
 ---
@@ -171,7 +183,7 @@ pnpm nx serve dashboard
 ### 7.1 Health check API
 
 ```bash
-curl http://localhost:3000/api
+curl http://localhost:3100/api
 ```
 
 Respuesta esperada:
@@ -182,13 +194,13 @@ Respuesta esperada:
 ### 7.2 Con tenant (usando header)
 
 ```bash
-curl -H "X-Tenant-Slug: demo" http://localhost:3000/api
+curl -H "X-Tenant-Slug: demo" http://localhost:3100/api
 ```
 
 ### 7.3 Con tenant (usando subdomain)
 
 ```bash
-curl http://demo.localhost:3000/api
+curl http://demo.localhost:3100/api
 ```
 
 ### 7.4 Verificar MongoDB
@@ -216,12 +228,13 @@ db.tenants.find().pretty()
 
 | App | Puerto | URL |
 |-----|--------|-----|
-| tenant-api | 3000 | http://localhost:3000/api |
-| dashboard | 4200 | http://localhost:4200 |
-| admin-api | 3002 | http://localhost:3002/api |
-| admin-dashboard | 4201 | http://localhost:4201 |
-| ai-assistant | 3010 | http://localhost:3010 |
-| mcp-server | 3011 | http://localhost:3011 |
+| tenant/dashboard | 3000 | http://localhost:3000 |
+| tenant/webapp | 3001 | http://localhost:3001 |
+| tenant/server | 3100 | http://localhost:3100/api |
+| admin/dashboard | 3002 | http://localhost:3002 |
+| admin/server | 3102 | http://localhost:3102/api |
+| tenant/ai-assistant | 3200 | http://localhost:3200 |
+| tenant/mcp-server | 3201 | http://localhost:3201 |
 
 ---
 
@@ -230,35 +243,40 @@ db.tenants.find().pretty()
 ### Build
 ```bash
 # Compilar todo
-pnpm nx run-many -t build
+npm run build
 
 # Compilar app especifica
-pnpm nx build tenant-api
-pnpm nx build dashboard
+npx nx build tenant-server
+npx nx build dashboard
 ```
 
 ### Test
 ```bash
 # Tests de todos los proyectos
-pnpm nx run-many -t test
+npx nx run-many -t test
 
 # Test especifico
-pnpm nx test tenant-api
+npx nx test tenant-server
 ```
 
 ### Lint
 ```bash
-pnpm nx run-many -t lint
+npm run lint
+```
+
+### Typecheck
+```bash
+npm run typecheck
 ```
 
 ### Ver proyectos NX
 ```bash
-pnpm nx show projects
+npx nx show projects
 ```
 
 ### Grafo de dependencias
 ```bash
-pnpm nx graph
+npx nx graph
 ```
 
 ---
@@ -295,14 +313,14 @@ mongosh    # intentar conectar
 
 1. Limpiar cache:
 ```bash
-pnpm nx reset
+npx nx reset
 rm -rf node_modules/.cache
 ```
 
 2. Reinstalar dependencias:
 ```bash
 rm -rf node_modules
-pnpm install
+npm install
 ```
 
 ### Puerto en uso
@@ -323,7 +341,7 @@ kill -9 <pid>
 
 Una vez configurado el sistema base:
 
-1. **Configurar Clerk** - Para autenticacion real
+1. **Configurar FusionAuth** - Para autenticacion real (ver PLAN-IMPLEMENTACION-IDENTIDAD.md)
 2. **Crear mas tenants** - Usar script provision-tenant
 3. **Desarrollar features** - Seguir documentacion en docs/v2/
 
@@ -333,15 +351,15 @@ Una vez configurado el sistema base:
 
 ```bash
 # Setup inicial (una vez)
-pnpm install
-pnpm ts-node scripts/init-system.ts
-pnpm ts-node scripts/provision-tenant.ts --slug=demo --name="Demo" --email=demo@test.com
+npm install
+npx ts-node scripts/init-system.ts
+npx ts-node scripts/provision-tenant.ts --slug=demo --name="Demo" --email=demo@test.com
 
 # Desarrollo diario
-pnpm nx serve tenant-api   # Terminal 1
-pnpm nx serve dashboard    # Terminal 2
+npx nx serve tenant-server   # Terminal 1
+npx nx dev dashboard         # Terminal 2
 
 # Acceso
-http://demo.localhost:3000/api  # API
-http://demo.localhost:4200      # Dashboard
+http://demo.localhost:3100/api  # API
+http://demo.localhost:3000      # Dashboard
 ```

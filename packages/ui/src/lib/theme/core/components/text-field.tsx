@@ -222,7 +222,7 @@ const MuiOutlinedInput: Components<Theme>['MuiOutlinedInput'] = {
       ...outlinedInputStyles.root(theme, outlinedInputClasses),
       variants: outlinedInputVariants.root,
     }),
-    input: { variants: [...outlinedInputVariants.input, ...multilineInputVariants] },
+    input: { variants: [...outlinedInputVariants.input, ...multilineInputVariants] } as any,
     notchedOutline: ({ theme }) => outlinedInputStyles.notchedOutline(theme),
   },
 };
@@ -307,7 +307,7 @@ const MuiFilledInput: Components<Theme>['MuiFilledInput'] = {
     }),
     input: {
       variants: [...filledInputVariants.input, ...multilineInputVariants],
-    },
+    } as any,
   },
 };
 

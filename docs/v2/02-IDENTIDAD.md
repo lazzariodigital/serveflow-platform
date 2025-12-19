@@ -1,8 +1,8 @@
 # Bloque 2: Identidad (Autenticación)
 
-**Estado:** En desarrollo
+**Estado:** ✅ Completado
 **Dependencias:** Bloque 1 (Fundación) - Completado
-**Última actualización:** 2025-12-13
+**Última actualización:** 2025-12-15
 
 ---
 
@@ -24,6 +24,7 @@
 8. [Integración con Cerbos](#8-integración-con-cerbos)
 9. [Configuración y Variables de Entorno](#9-configuración-y-variables-de-entorno)
 10. [Decisiones Tomadas](#10-decisiones-tomadas)
+11. [Social Login (Google OAuth Multi-Tenant)](#11-social-login-google-oauth-multi-tenant)
 
 ---
 
@@ -35,7 +36,7 @@ Serveflow es una plataforma multi-tenant donde cada tenant (club deportivo) nece
 - Usuarios completamente aislados entre tenants
 - El mismo email puede existir en diferentes tenants
 - UI de login personalizable (white-label)
-- Diferentes tipos de usuarios (admin, staff, member)
+- Diferentes tipos de usuarios (admin, client, provider)
 
 ### La Solución
 
@@ -161,7 +162,10 @@ erDiagram
 #### Role
 - Pertenece a una Application
 - Se asigna via Registration
-- Roles: `owner`, `admin`, `staff`, `member`
+- Roles: `admin`, `client`, `provider`
+  - `admin`: Acceso completo al tenant (superRole)
+  - `client`: Usuarios finales (socios, clientes) - rol por defecto
+  - `provider`: Proveedores de servicios (monitores, entrenadores, staff)
 
 ### JWT de FusionAuth
 
@@ -202,6 +206,50 @@ FusionAuth ofrece dos formas de autenticar:
 | **Uso en Serveflow** | ✅ Usamos esto | ❌ No usamos |
 
 Usamos **Login API** porque necesitamos UI custom white-label.
+
+### Configuración Crítica de Tenants y Applications
+
+#### Issuer del Tenant
+
+El **issuer** del JWT debe ser consistente para que el backend pueda validar tokens:
+
+```typescript
+// packages/auth/src/fusionauth/tenants.ts
+// El issuer se configura como el URL de FusionAuth
+const issuer = getFusionAuthUrl(); // http://localhost:9011
+```
+
+**IMPORTANTE:** El issuer debe coincidir con `FUSIONAUTH_URL` del backend. El guard acepta múltiples formatos:
+- `http://localhost:9011`
+- `localhost:9011`
+- `localhost9011` (formato por defecto de FusionAuth)
+
+#### Application - requireAuthentication
+
+Para permitir login desde el browser **sin exponer API key**:
+
+```typescript
+// loginConfiguration
+{
+  allowTokenRefresh: true,
+  generateRefreshTokens: true,
+  requireAuthentication: false,  // ⚠️ CRÍTICO: permite login sin API key
+}
+```
+
+Si `requireAuthentication: true`, FusionAuth devuelve 401 en el Login API porque espera un header `Authorization` con API key.
+
+#### Redirect URLs
+
+Las URLs de redirect se configuran automáticamente según el entorno:
+
+```typescript
+// Producción
+`https://${slug}.serveflow.app/oauth/callback`
+
+// Desarrollo (puerto configurable via TENANT_DASHBOARD_PORT)
+`http://${slug}.localhost:3000/oauth/callback`
+```
 
 ---
 
@@ -572,17 +620,15 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // Buscar token en cookies
-  const token =
-    req.cookies.get(`fa_access_token_${tenantSlug}`)?.value ||
-    req.cookies.get('fa_access_token')?.value;
+  // Buscar token en cookie (nombre único: fa_access_token)
+  const accessToken = req.cookies.get('fa_access_token')?.value;
 
-  if (!token) {
+  if (!accessToken) {
     return NextResponse.redirect(new URL('/sign-in', req.url));
   }
 
   // Verificar token (decodificar + validar expiry)
-  const { valid, userId, tenantId } = await verifyToken(token);
+  const { valid, userId, tenantId, applicationId } = await verifyFusionAuthToken(accessToken);
 
   if (!valid) {
     return NextResponse.redirect(new URL('/sign-in', req.url));
@@ -593,10 +639,30 @@ export async function middleware(req: NextRequest) {
   response.headers.set('x-tenant-slug', tenantSlug);
   response.headers.set('x-fusionauth-user-id', userId);
   response.headers.set('x-fusionauth-tenant-id', tenantId);
+  response.headers.set('x-fusionauth-application-id', applicationId);
 
   return response;
 }
 ```
+
+#### Cookies de Autenticación
+
+El hook `useFusionAuth` maneja las cookies:
+
+```typescript
+// packages/ui/src/hooks/use-fusionauth.ts
+
+// Después de login exitoso:
+setCookie('fa_access_token', data.token, data.tokenExpirationInstant);
+setCookie('fa_refresh_token', data.refreshToken, Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+// En logout:
+deleteCookie('fa_access_token');
+deleteCookie('fa_refresh_token');
+clearLegacyAuthCookies(); // Limpia cookies de Clerk/Frontegg
+```
+
+**Nota:** Para subdominios en desarrollo (`tenant.localhost`), las cookies se configuran correctamente sin atributo `domain` para evitar problemas de seguridad del navegador.
 
 #### Root Layout
 
@@ -1423,7 +1489,7 @@ export async function createFusionAuthUser(input: CreateUserInput) {
       },
       registration: {
         applicationId: input.applicationId,
-        roles: input.roles || ['member'],
+        roles: input.roles || ['client'],
       },
     }),
   });
@@ -1489,9 +1555,9 @@ sequenceDiagram
 
     C->>G: DELETE /api/bookings/123
     G->>FA: Verificar JWT
-    FA-->>G: Válido (user: juan, roles: [member])
+    FA-->>G: Válido (user: juan, roles: [client])
 
-    G->>CB: checkResource({<br/>  principal: { id: juan, roles: [member] },<br/>  resource: { kind: booking, id: 123 },<br/>  action: delete<br/>})
+    G->>CB: checkResource({<br/>  principal: { id: juan, roles: [client] },<br/>  resource: { kind: booking, id: 123 },<br/>  action: delete<br/>})
 
     alt Tiene permiso
         CB-->>G: EFFECT_ALLOW
@@ -1644,11 +1710,171 @@ Cada tenant puede tener configuración custom de FusionAuth en MongoDB:
 
 ---
 
+## Completado ✅
+
+- [x] Migrar implementación de Frontegg a FusionAuth
+- [x] Hook `useFusionAuth` con todas las operaciones de auth
+- [x] Guard `FusionAuthGuard` con verificación JWKS
+- [x] Creación automática de Tenants y Applications en FusionAuth
+- [x] Configuración correcta de issuer (usa FUSIONAUTH_URL)
+- [x] `requireAuthentication: false` para login desde browser
+- [x] Middleware de Next.js para validación de tokens
+- [x] Flujo de login end-to-end funcionando
+
+## 11. Social Login (Google OAuth Multi-Tenant)
+
+### Arquitectura
+
+Cada tenant puede tener su propio Google OAuth Client ID:
+- Cada tenant autoriza solo su propio subdominio en Google Cloud Console
+- Aislamiento completo entre tenants
+- Login social 100% white-label
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Google Cloud Console                                            │
+├─────────────────────────────────────────────────────────────────┤
+│  Proyecto "Club Demo"                                            │
+│    OAuth Client ID: demo-xxx.apps.googleusercontent.com         │
+│    Authorized Origins: https://demo.serveflow.com               │
+├─────────────────────────────────────────────────────────────────┤
+│  Proyecto "Club Padel Madrid"                                    │
+│    OAuth Client ID: padel-xxx.apps.googleusercontent.com        │
+│    Authorized Origins: https://clubpadel.serveflow.com          │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  FusionAuth - Google Identity Provider                           │
+│                                                                  │
+│  applicationConfiguration:                                       │
+│    [demo-app-id]:                                                │
+│      client_id: "demo-xxx.apps.googleusercontent.com"           │
+│      client_secret: "xxx"                                        │
+│      enabled: true                                               │
+│                                                                  │
+│    [clubpadel-app-id]:                                          │
+│      client_id: "padel-xxx.apps.googleusercontent.com"          │
+│      client_secret: "xxx"                                        │
+│      enabled: true                                               │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  MongoDB - Tenant Collection                                     │
+│                                                                  │
+│  {                                                               │
+│    slug: "demo",                                                 │
+│    authProviders: {                                              │
+│      google: {                                                   │
+│        clientId: "demo-xxx.apps.googleusercontent.com",         │
+│        enabled: true                                             │
+│      }                                                           │
+│    }                                                             │
+│  }                                                               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Configuración por Tenant
+
+#### 1. Google Cloud Console
+
+1. Crear proyecto en [Google Cloud Console](https://console.cloud.google.com)
+2. APIs & Services → Credentials → Create OAuth Client ID
+3. Tipo: **Web application**
+4. **Authorized JavaScript origins**:
+   - Desarrollo: `http://[tenant-slug].localhost:3000`
+   - Producción: `https://[tenant-slug].serveflow.com`
+
+#### 2. FusionAuth - applicationConfiguration
+
+```bash
+# PATCH /api/identity-provider/[google-idp-id]
+curl -X PATCH \
+  "http://localhost:9011/api/identity-provider/[google-idp-id]" \
+  -H "Authorization: [API-KEY]" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "identityProvider": {
+      "applicationConfiguration": {
+        "[app-id]": {
+          "client_id": "[google-client-id]",
+          "client_secret": "[google-secret]",
+          "enabled": true,
+          "createRegistration": true
+        }
+      }
+    }
+  }'
+```
+
+#### 3. MongoDB - authProviders
+
+```javascript
+db.tenants.updateOne(
+  { slug: "demo" },
+  {
+    $set: {
+      authProviders: {
+        google: {
+          clientId: "xxx.apps.googleusercontent.com",
+          enabled: true
+        }
+      }
+    }
+  }
+)
+```
+
+### Variables de Entorno
+
+El **Identity Provider ID** de FusionAuth es global (no por tenant):
+
+```bash
+NEXT_PUBLIC_FUSIONAUTH_GOOGLE_IDP_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+```
+
+### Flujo de Login con Google SDK
+
+```
+1. Usuario clickea "Login con Google"
+           │
+           ▼
+2. GoogleSignInButton carga SDK con clientId del tenant
+   (obtenido de tenant.authProviders.google.clientId)
+           │
+           ▼
+3. Google muestra popup de selección de cuenta
+           │
+           ▼
+4. Google devuelve ID Token al frontend
+           │
+           ▼
+5. Frontend llama a FusionAuth:
+   POST /api/identity-provider/login
+   {
+     applicationId: "[tenant-fusionauth-app-id]",
+     identityProviderId: "[google-idp-id]",
+     data: { token: "[google-id-token]" }
+   }
+           │
+           ▼
+6. FusionAuth valida token y devuelve JWT
+```
+
+### Checklist por Tenant
+
+- [ ] Crear OAuth Client ID en Google Cloud Console
+- [ ] Agregar Authorized Origins para el subdominio
+- [ ] FusionAuth: agregar applicationConfiguration
+- [ ] MongoDB: agregar authProviders.google al tenant
+
+---
+
 ## Próximos Pasos
 
-- [ ] Migrar implementación de Frontegg a FusionAuth
-- [ ] Configurar FusionAuth Tenant para cada cliente existente
-- [ ] Implementar JWT Populate Lambda para claims custom
-- [ ] Actualizar hook `useFusionAuth` basado en `useFronteggAuth`
-- [ ] Configurar JWKS endpoint en guards
-- [ ] Testing de flujos de auth end-to-end
+- [ ] Configurar JWT Populate Lambda para claims custom (organizationIds, permissions)
+- [ ] Implementar flujo de refresh token automático
+- [x] ~~Agregar Social Login (Google) via OAuth~~ ✅ Implementado
+- [ ] Configurar email templates en FusionAuth
+- [ ] Testing e2e automatizados de flujos de auth

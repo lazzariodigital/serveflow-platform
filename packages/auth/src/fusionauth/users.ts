@@ -1,11 +1,12 @@
-import type { User } from '@fusionauth/typescript-client';
-import { getFusionAuthClient, getFusionAuthClientForTenant } from './client';
 import type {
-  FusionAuthUser,
   CreateFusionAuthUserInput,
-  UpdateFusionAuthUserInput,
+  FusionAuthUser,
   ListFusionAuthUsersParams,
+  UpdateFusionAuthUserInput,
 } from '../types';
+import { getFusionAuthClient, getFusionAuthClientForTenant } from './client';
+
+import type { User } from '@fusionauth/typescript-client';
 
 // ════════════════════════════════════════════════════════════════
 // FusionAuth User Operations
@@ -26,7 +27,7 @@ import type {
  *   lastName: 'Doe',
  *   tenantId: 'tenant-uuid',
  *   applicationId: 'app-uuid',
- *   roles: ['member'],
+ *   roles: ['client'], // Must be a role that exists in the Application (admin, user, viewer)
  *   sendSetPasswordEmail: true,
  * });
  * ```
@@ -35,6 +36,8 @@ export async function createFusionAuthUser(
   input: CreateFusionAuthUserInput
 ): Promise<FusionAuthUser> {
   const client = getFusionAuthClientForTenant(input.tenantId);
+
+  console.log('[FusionAuth] Creating user with input:', input);
 
   const response = await client.register(null as unknown as string, {
     user: {
@@ -50,7 +53,7 @@ export async function createFusionAuthUser(
     },
     registration: {
       applicationId: input.applicationId,
-      roles: input.roles || ['member'],
+      roles: input.roles || ['client'], // Default role - must exist in the Application
       data: input.data,
     },
     sendSetPasswordEmail: input.sendSetPasswordEmail ?? false,

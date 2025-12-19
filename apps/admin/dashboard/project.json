@@ -1,0 +1,17 @@
+{
+  "name": "admin-dashboard",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/admin/dashboard/src",
+  "projectType": "application",
+  "tags": [],
+  "targets": {
+    "dev": {
+      "executor": "@nx/next:server",
+      "options": {
+        "buildTarget": "admin-dashboard:build",
+        "dev": true,
+        "port": 3002
+      }
+    }
+  }
+}

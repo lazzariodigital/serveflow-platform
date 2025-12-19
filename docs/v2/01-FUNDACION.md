@@ -1198,9 +1198,9 @@ serveflow/
   mcp.internal.serveflow.com               → MCP Server (tools para AI)
 
   Nota: En desarrollo local, estos servicios corren en localhost con puertos:
-  - tenant/api:        localhost:3001
-  - AI Assistant:      localhost:3010
-  - MCP Server:        localhost:3011
+  - tenant/server:     localhost:3100
+  - AI Assistant:      localhost:3200
+  - MCP Server:        localhost:3201
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         FLUJO DE COMUNICACIÓN                                │

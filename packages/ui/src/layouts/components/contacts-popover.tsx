@@ -90,7 +90,8 @@ export function ContactsPopover({ data = [], sx, ...other }: ContactsPopoverProp
           {data.map((contact) => (
             <MenuItem key={contact.id} sx={{ p: 1 }}>
               <Badge
-                variant={contact.status as 'alway' | 'online' | 'busy' | 'offline'}
+                variant="dot"
+                color={contact.status === 'online' ? 'success' : contact.status === 'busy' ? 'error' : 'default'}
                 anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
                 sx={{ mr: 2 }}
               >

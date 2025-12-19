@@ -21,6 +21,9 @@ function serializeTenant(tenant: TenantMVP | null): TenantMVP | null {
  * Server-side function to resolve tenant from request headers.
  * Returns both tenant and error for proper error handling.
  *
+ * For development with ngrok (no subdomain support), set:
+ *   DEV_TENANT_SLUG=demo
+ *
  * @example
  * // In layout.tsx
  * const { tenant, error } = await getTenantFromHeaders();
@@ -28,7 +31,16 @@ function serializeTenant(tenant: TenantMVP | null): TenantMVP | null {
  */
 export async function getTenantFromHeaders(): Promise<TenantResult> {
   const headersList = await headers();
-  const host = headersList.get('host') || headersList.get('x-forwarded-host') || '';
+  let host = headersList.get('host') || headersList.get('x-forwarded-host') || '';
+
+  // Development fallback: use DEV_TENANT_SLUG for ngrok or other tunnels
+  // that don't support subdomains
+  const devTenantSlug = process.env.DEV_TENANT_SLUG;
+  if (devTenantSlug && (host.includes('ngrok') || host.includes('localhost'))) {
+    // Fake the host as if it were a subdomain
+    host = `${devTenantSlug}.localhost`;
+    console.log(`[getTenantFromHeaders] Using DEV_TENANT_SLUG: ${devTenantSlug}`);
+  }
 
   if (!host) {
     console.warn('[getTenantFromHeaders] No host header found');

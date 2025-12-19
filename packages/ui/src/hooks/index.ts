@@ -4,6 +4,7 @@
 
 export {
   useFusionAuth,
+  type UseFusionAuthOptions,
   type FusionAuthResponse,
   type FusionAuthError,
   type LoginCredentials,

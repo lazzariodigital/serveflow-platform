@@ -50,11 +50,16 @@ export function getFusionAuthClient(): FusionAuthClient {
  * @returns FusionAuth client instance with tenant header
  */
 export function getFusionAuthClientForTenant(tenantId: string): FusionAuthClient {
-  const baseClient = getFusionAuthClient();
+  // Validate inputs
+  const apiKey = process.env['FUSIONAUTH_API_KEY'];
+  const url = process.env['FUSIONAUTH_URL'];
 
-  // Create a new client with the tenant ID header
-  const apiKey = process.env['FUSIONAUTH_API_KEY']!;
-  const url = process.env['FUSIONAUTH_URL']!;
+  if (!apiKey || !url) {
+    throw new Error('FUSIONAUTH_API_KEY or FUSIONAUTH_URL not configured');
+  }
+
+  console.log(`[FusionAuth] Creating client for tenant: ${tenantId}`);
+  console.log(`[FusionAuth] URL: ${url}`);
 
   const tenantClient = new FusionAuthClient(apiKey, url, tenantId);
 

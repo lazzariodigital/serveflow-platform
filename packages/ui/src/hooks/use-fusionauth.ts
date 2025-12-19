@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { useTenant } from '@serveflow/tenants/react';
 
 // ════════════════════════════════════════════════════════════════
 // Types
@@ -46,6 +45,10 @@ export interface SignUpData {
 export interface TwoFactorData {
   twoFactorId: string;
   code: string;
+}
+
+export interface GoogleLoginResponse extends FusionAuthResponse {
+  needsRegistration?: boolean;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -133,11 +136,34 @@ function clearLegacyAuthCookies() {
 }
 
 // ════════════════════════════════════════════════════════════════
+// Hook Configuration
+// ════════════════════════════════════════════════════════════════
+
+export interface UseFusionAuthOptions {
+  /**
+   * FusionAuth Application ID to use for authentication.
+   * If not provided, falls back to NEXT_PUBLIC_FUSIONAUTH_APPLICATION_ID env var.
+   *
+   * For tenant apps: pass tenant.fusionauthApplicationId
+   * For admin apps: pass NEXT_PUBLIC_FUSIONAUTH_ADMIN_APPLICATION_ID or leave empty to use env var
+   */
+  applicationId?: string;
+
+  /**
+   * FusionAuth Tenant ID for multi-tenant setups.
+   * Required when FusionAuth has multiple tenants and API key is not tenant-scoped.
+   *
+   * For tenant apps: pass tenant.fusionauthTenantId
+   * For admin apps: pass NEXT_PUBLIC_FUSIONAUTH_ADMIN_TENANT_ID
+   */
+  tenantId?: string;
+}
+
+// ════════════════════════════════════════════════════════════════
 // Hook
 // ════════════════════════════════════════════════════════════════
 
-export function useFusionAuth() {
-  const { tenant } = useTenant();
+export function useFusionAuth(options: UseFusionAuthOptions = {}) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -146,10 +172,25 @@ export function useFusionAuth() {
     return process.env.NEXT_PUBLIC_FUSIONAUTH_URL || 'http://localhost:9011';
   }, []);
 
-  // Get the application ID for this tenant
+  // Get the application ID (from options or env var)
   const getApplicationId = useCallback(() => {
-    return tenant?.fusionauthApplicationId || process.env.NEXT_PUBLIC_FUSIONAUTH_APPLICATION_ID || '';
-  }, [tenant]);
+    return options.applicationId || process.env.NEXT_PUBLIC_FUSIONAUTH_APPLICATION_ID || '';
+  }, [options.applicationId]);
+
+  // Get headers including tenant ID if provided
+  const getHeaders = useCallback((): Record<string, string> => {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    // Add tenant ID header for multi-tenant setups
+    const tenantId = options.tenantId || process.env.NEXT_PUBLIC_FUSIONAUTH_TENANT_ID;
+    if (tenantId) {
+      headers['X-FusionAuth-TenantId'] = tenantId;
+    }
+
+    return headers;
+  }, [options.tenantId]);
 
   /**
    * Parse FusionAuth error response
@@ -181,9 +222,7 @@ export function useFusionAuth() {
 
       const response = await fetch(`${baseUrl}/api/login`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getHeaders(),
         body: JSON.stringify({
           loginId: credentials.email,
           password: credentials.password,
@@ -231,7 +270,7 @@ export function useFusionAuth() {
     } finally {
       setIsLoading(false);
     }
-  }, [getBaseUrl, getApplicationId]);
+  }, [getBaseUrl, getApplicationId, getHeaders]);
 
   /**
    * Complete two-factor authentication
@@ -247,9 +286,7 @@ export function useFusionAuth() {
 
       const response = await fetch(`${baseUrl}/api/two-factor/login`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getHeaders(),
         body: JSON.stringify({
           twoFactorId: data.twoFactorId,
           code: data.code,
@@ -279,7 +316,7 @@ export function useFusionAuth() {
     } finally {
       setIsLoading(false);
     }
-  }, [getBaseUrl, getApplicationId]);
+  }, [getBaseUrl, getApplicationId, getHeaders]);
 
   /**
    * Register a new user
@@ -295,9 +332,7 @@ export function useFusionAuth() {
 
       const response = await fetch(`${baseUrl}/api/user/registration`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getHeaders(),
         body: JSON.stringify({
           user: {
             email: data.email,
@@ -338,7 +373,7 @@ export function useFusionAuth() {
     } finally {
       setIsLoading(false);
     }
-  }, [getBaseUrl, getApplicationId]);
+  }, [getBaseUrl, getApplicationId, getHeaders]);
 
   /**
    * Logout - clear cookies
@@ -351,9 +386,7 @@ export function useFusionAuth() {
     try {
       await fetch(`${baseUrl}/api/logout`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getHeaders(),
       });
     } catch {
       // Ignore errors, we'll clear cookies anyway
@@ -365,10 +398,10 @@ export function useFusionAuth() {
 
     // Clear legacy auth cookies (Clerk, Frontegg)
     clearLegacyAuthCookies();
-  }, [getBaseUrl]);
+  }, [getBaseUrl, getHeaders]);
 
   /**
-   * Initiate Google OAuth login
+   * Initiate Google OAuth login (redirect flow - legacy)
    * Redirects to FusionAuth's OAuth authorize endpoint
    */
   const loginWithGoogle = useCallback(() => {
@@ -393,6 +426,95 @@ export function useFusionAuth() {
   }, [getBaseUrl, getApplicationId]);
 
   /**
+   * Complete Google login using token from Google Sign-In SDK
+   * POST /api/identity-provider/login
+   *
+   * This is the recommended approach for custom UI (white-label)
+   * Use with Google Sign-In SDK or Google One Tap
+   */
+  const completeGoogleLogin = useCallback(async (googleIdToken: string): Promise<GoogleLoginResponse> => {
+    const baseUrl = getBaseUrl();
+    const applicationId = getApplicationId();
+
+    // The Google Identity Provider ID configured in FusionAuth
+    const googleIdentityProviderId = process.env.NEXT_PUBLIC_FUSIONAUTH_GOOGLE_IDP_ID;
+
+    if (!googleIdentityProviderId) {
+      const errorMsg = 'Google Identity Provider ID not configured';
+      setError(errorMsg);
+      throw new Error(errorMsg);
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`${baseUrl}/api/identity-provider/login`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          applicationId,
+          identityProviderId: googleIdentityProviderId,
+          data: {
+            token: googleIdToken,
+          },
+        }),
+      });
+
+      const text = await response.text();
+      const data = text ? JSON.parse(text) : {};
+
+      // Status codes:
+      // 200 = Login successful
+      // 202 = User needs to complete registration
+      // 212 = Pending email verification
+      // 232 = Pending identity provider link
+      // 242 = Two-factor required
+
+      if (response.status === 202) {
+        // User is new, may need to complete profile
+        return { ...data, needsRegistration: true, token: '' };
+      }
+
+      if (response.status === 242) {
+        // Two-factor required
+        return {
+          token: '',
+          twoFactorId: data.twoFactorId,
+          methods: data.methods,
+        };
+      }
+
+      if (!response.ok) {
+        let errorMessage = 'Error con Google Sign-In';
+        if (response.status === 400) {
+          errorMessage = 'Token de Google inválido';
+        } else if (response.status === 401) {
+          errorMessage = 'No autorizado';
+        } else if (data && Object.keys(data).length > 0) {
+          errorMessage = parseError(data) || errorMessage;
+        }
+        setError(errorMessage);
+        throw new Error(errorMessage);
+      }
+
+      // Set cookies on successful login
+      setCookie('fa_access_token', data.token, data.tokenExpirationInstant);
+      if (data.refreshToken) {
+        setCookie('fa_refresh_token', data.refreshToken, Date.now() + 30 * 24 * 60 * 60 * 1000);
+      }
+
+      return data;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Error con Google Sign-In';
+      setError(errorMessage);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [getBaseUrl, getApplicationId, getHeaders]);
+
+  /**
    * Request password reset email
    * POST /api/user/forgot-password - Direct to FusionAuth
    */
@@ -406,9 +528,7 @@ export function useFusionAuth() {
 
       const response = await fetch(`${baseUrl}/api/user/forgot-password`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getHeaders(),
         body: JSON.stringify({
           loginId: email,
           applicationId,
@@ -433,7 +553,7 @@ export function useFusionAuth() {
     } finally {
       setIsLoading(false);
     }
-  }, [getBaseUrl, getApplicationId]);
+  }, [getBaseUrl, getApplicationId, getHeaders]);
 
   /**
    * Reset password with token
@@ -447,9 +567,7 @@ export function useFusionAuth() {
     try {
       const response = await fetch(`${baseUrl}/api/user/change-password/${data.changePasswordId}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getHeaders(),
         body: JSON.stringify({
           password: data.password,
         }),
@@ -468,7 +586,7 @@ export function useFusionAuth() {
     } finally {
       setIsLoading(false);
     }
-  }, [getBaseUrl]);
+  }, [getBaseUrl, getHeaders]);
 
   /**
    * Verify email with token
@@ -482,9 +600,7 @@ export function useFusionAuth() {
     try {
       const response = await fetch(`${baseUrl}/api/user/verify-email/${verificationId}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getHeaders(),
       });
 
       if (!response.ok) {
@@ -500,7 +616,7 @@ export function useFusionAuth() {
     } finally {
       setIsLoading(false);
     }
-  }, [getBaseUrl]);
+  }, [getBaseUrl, getHeaders]);
 
   /**
    * Resend verification email
@@ -516,9 +632,7 @@ export function useFusionAuth() {
 
       const response = await fetch(`${baseUrl}/api/user/verify-email?email=${encodeURIComponent(email)}&applicationId=${applicationId}`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getHeaders(),
       });
 
       if (!response.ok) {
@@ -534,7 +648,7 @@ export function useFusionAuth() {
     } finally {
       setIsLoading(false);
     }
-  }, [getBaseUrl, getApplicationId]);
+  }, [getBaseUrl, getApplicationId, getHeaders]);
 
   /**
    * Clear error
@@ -549,6 +663,7 @@ export function useFusionAuth() {
     verifyTwoFactor,
     logout,
     loginWithGoogle,
+    completeGoogleLogin,
     forgotPassword,
     resetPassword,
     verifyEmail,

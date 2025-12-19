@@ -1,5 +1,5 @@
 import { GrantType, RegistrationType } from '@fusionauth/typescript-client';
-import { getFusionAuthClient } from './client';
+import { getFusionAuthClient, getFusionAuthUrl } from './client';
 
 // ════════════════════════════════════════════════════════════════
 // FusionAuth Tenant & Application Operations
@@ -11,12 +11,42 @@ import { getFusionAuthClient } from './client';
 // ════════════════════════════════════════════════════════════════
 
 // ════════════════════════════════════════════════════════════════
+// Configuration
+// ════════════════════════════════════════════════════════════════
+
+const isDevelopment = process.env['NODE_ENV'] !== 'production';
+
+/**
+ * Get the base domain for tenant URLs.
+ * Development: localhost with configurable port
+ * Production: serveflow.app
+ */
+function getBaseDomain(): string {
+  if (isDevelopment) {
+    const port = process.env['TENANT_DASHBOARD_PORT'] || '3000';
+    return `localhost:${port}`;
+  }
+  return 'serveflow.app';
+}
+
+/**
+ * Get the protocol for tenant URLs.
+ */
+function getProtocol(): string {
+  return isDevelopment ? 'http' : 'https';
+}
+
+// ════════════════════════════════════════════════════════════════
 // Types
 // ════════════════════════════════════════════════════════════════
 
 export interface CreateFusionAuthTenantInput {
   name: string;
   slug: string;
+  /**
+   * Custom issuer for JWT tokens.
+   * Defaults to FusionAuth URL (recommended for consistency across tenants).
+   */
   issuer?: string;
   emailConfiguration?: {
     host?: string;
@@ -70,16 +100,26 @@ export interface CreateTenantWithApplicationResult {
 /**
  * Creates a new FusionAuth Tenant.
  * Each Serveflow tenant gets its own FusionAuth tenant for isolation.
+ *
+ * IMPORTANT: The issuer is set to the FusionAuth URL by default.
+ * This ensures consistent JWT validation across all tenants.
+ * The backend FusionAuthGuard validates the issuer against FUSIONAUTH_URL.
  */
 export async function createFusionAuthTenant(
   input: CreateFusionAuthTenantInput
 ): Promise<FusionAuthTenantResult> {
   const client = getFusionAuthClient();
 
+  // Use FusionAuth URL as issuer for consistent JWT validation
+  // This matches what the FusionAuthGuard expects in the backend
+  const issuer = input.issuer || getFusionAuthUrl();
+
+  console.log(`[FusionAuth] Creating tenant "${input.name}" with issuer: ${issuer}`);
+
   const response = await client.createTenant(null as unknown as string, {
     tenant: {
       name: input.name,
-      issuer: input.issuer || `https://${input.slug}.serveflow.app`,
+      issuer,
       emailConfiguration: input.emailConfiguration ? {
         host: input.emailConfiguration.host,
         port: input.emailConfiguration.port,
@@ -106,6 +146,8 @@ export async function createFusionAuthTenant(
   if (!response.response.tenant?.id) {
     throw new Error('Failed to create FusionAuth tenant');
   }
+
+  console.log(`[FusionAuth] Tenant created: ${response.response.tenant.id}`);
 
   return {
     id: response.response.tenant.id,
@@ -162,6 +204,9 @@ export async function deleteFusionAuthTenant(tenantId: string): Promise<boolean>
 /**
  * Creates a new FusionAuth Application within a Tenant.
  * Each Serveflow tenant gets one application for the dashboard.
+ *
+ * IMPORTANT: requireAuthentication is set to FALSE to allow browser-based
+ * login without API key. The Login API can be called directly from the frontend.
  */
 export async function createFusionAuthApplication(
   input: CreateFusionAuthApplicationInput
@@ -169,7 +214,27 @@ export async function createFusionAuthApplication(
   const client = getFusionAuthClient();
 
   // Default roles for a Serveflow tenant
-  const defaultRoles = input.roles || ['admin', 'user', 'viewer'];
+  // - admin: Full access to tenant management
+  // - client: End users (members, customers)
+  // - provider: Service providers (coaches, instructors, staff)
+  const defaultRoles = input.roles || ['admin', 'client', 'provider'];
+
+  // Build redirect URLs for OAuth
+  const baseDomain = getBaseDomain();
+
+  const defaultRedirectURLs = [
+    // Production URL
+    `https://${input.slug}.serveflow.app/oauth/callback`,
+    // Development URL (subdomain.localhost:port)
+    `http://${input.slug}.${baseDomain}/oauth/callback`,
+  ];
+
+  const defaultLogoutURL = isDevelopment
+    ? `http://${input.slug}.${baseDomain}/sign-in`
+    : `https://${input.slug}.serveflow.app/sign-in`;
+
+  console.log(`[FusionAuth] Creating application "${input.name}" for tenant ${input.tenantId}`);
+  console.log(`[FusionAuth] Redirect URLs:`, defaultRedirectURLs);
 
   const response = await client.createApplication(null as unknown as string, {
     application: {
@@ -177,11 +242,8 @@ export async function createFusionAuthApplication(
       tenantId: input.tenantId,
       // OAuth configuration
       oauthConfiguration: {
-        authorizedRedirectURLs: input.oauthConfiguration?.authorizedRedirectURLs || [
-          `https://${input.slug}.serveflow.app/oauth/callback`,
-          `http://${input.slug}.localhost:4200/oauth/callback`,
-        ],
-        logoutURL: input.oauthConfiguration?.logoutURL || `https://${input.slug}.serveflow.app/sign-in`,
+        authorizedRedirectURLs: input.oauthConfiguration?.authorizedRedirectURLs || defaultRedirectURLs,
+        logoutURL: input.oauthConfiguration?.logoutURL || defaultLogoutURL,
         clientSecret: input.oauthConfiguration?.clientSecret,
         enabledGrants: [GrantType.authorization_code, GrantType.refresh_token],
         generateRefreshTokens: true,
@@ -194,10 +256,12 @@ export async function createFusionAuthApplication(
         refreshTokenTimeToLiveInMinutes: 43200,
       },
       // Login configuration
+      // IMPORTANT: requireAuthentication = false allows browser-based login
+      // without needing to expose an API key in the frontend
       loginConfiguration: {
         allowTokenRefresh: true,
         generateRefreshTokens: true,
-        requireAuthentication: true,
+        requireAuthentication: false, // Allow browser login without API key
       },
       // Registration configuration
       registrationConfiguration: {
@@ -207,7 +271,7 @@ export async function createFusionAuthApplication(
       // Roles
       roles: defaultRoles.map((name) => ({
         name,
-        isDefault: name === 'user',
+        isDefault: name === 'client', // New users get 'client' role by default
         isSuperRole: name === 'admin',
       })),
     },
@@ -218,8 +282,13 @@ export async function createFusionAuthApplication(
   }
 
   const app = response.response.application;
-
   const appId = app.id!; // We've already checked this exists above
+
+  console.log(`[FusionAuth] Application created: ${appId}`);
+  console.log(`[FusionAuth] Application config:`, {
+    requireAuthentication: app.loginConfiguration?.requireAuthentication,
+    roles: app.roles?.map(r => r.name),
+  });
 
   return {
     id: appId,

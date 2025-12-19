@@ -34,7 +34,7 @@ import { UsersService } from './users.service';
 // MIGRACIÓN MONGOOSE: Ahora extrae userModel del request (inyectado por TenantMiddleware)
 // ════════════════════════════════════════════════════════════════
 
-@Controller('users')
+@Controller('users-tenant')
 @RequireTenant() // Todos los endpoints requieren tenant
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}

@@ -10,6 +10,13 @@ export * from './common';
 // AI Config types - No Zod schema yet
 export * from './ai-config';
 
+// Tenant types - Additional interfaces not in Zod schemas
+export type {
+  TenantAuthProviders,
+  TenantAuthProviderGoogle,
+  TenantAuthProviderGithub,
+} from './tenant';
+
 // ════════════════════════════════════════════════════════════════
 // DEPRECATED: The following files exist but are superseded by Zod schemas
 // - user.ts → use schemas/user.schema.ts

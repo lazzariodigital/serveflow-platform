@@ -123,6 +123,25 @@ export interface TenantAdvancedSettings {
 }
 
 // ════════════════════════════════════════════════════════════════
+// Tenant Auth Providers (Social Login)
+// ════════════════════════════════════════════════════════════════
+
+export interface TenantAuthProviderGoogle {
+  clientId: string;   // Google OAuth Client ID
+  enabled: boolean;
+}
+
+export interface TenantAuthProviderGithub {
+  clientId: string;   // GitHub OAuth Client ID
+  enabled: boolean;
+}
+
+export interface TenantAuthProviders {
+  google?: TenantAuthProviderGoogle;
+  github?: TenantAuthProviderGithub;
+}
+
+// ════════════════════════════════════════════════════════════════
 // Full Tenant Interface (all phases)
 // ════════════════════════════════════════════════════════════════
 
@@ -149,6 +168,9 @@ export interface Tenant extends BaseDocument {
   // Phase 3: Advanced
   features?: TenantFeatures;
   advancedSettings?: TenantAdvancedSettings;
+
+  // Auth Providers (Social Login)
+  authProviders?: TenantAuthProviders;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -167,6 +189,8 @@ export interface TenantMVP extends BaseDocument {
   branding: TenantBranding;
   theming: TenantTheming;
   status: 'active' | 'suspended';
+  // Social login configuration (optional)
+  authProviders?: TenantAuthProviders;
 }
 
 // ════════════════════════════════════════════════════════════════

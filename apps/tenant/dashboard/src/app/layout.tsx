@@ -1,5 +1,6 @@
 import './../global.css';
 
+import type { ThemePreset } from '@serveflow/ui';
 import { SettingsProvider, ThemeProvider, defaultSettings } from '@serveflow/ui';
 import { getTenantFromHeaders, getTenantMetadata } from '../lib/get-tenant';
 
@@ -19,6 +20,8 @@ export default async function RootLayout({
 }) {
   const { tenant, error } = await getTenantFromHeaders();
   const themeMode = tenant?.theming?.mode || 'light';
+  // Cast preset to ThemePreset (core uses preset1-5, ui uses named presets)
+  const themePreset = (tenant?.theming?.preset || 'default') as ThemePreset;
 
   // FusionAuth is self-hosted - no client-side provider needed
   // Authentication is handled via cookies (fa_access_token) and server-side validation
@@ -35,7 +38,7 @@ export default async function RootLayout({
             settings={{
               mode: themeMode,
               direction: tenant?.theming?.direction || 'ltr',
-              preset: tenant?.theming?.preset || 'default',
+              preset: themePreset,
               tenant: tenant?.theming,
             }}
           >
