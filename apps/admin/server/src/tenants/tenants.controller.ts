@@ -1,31 +1,33 @@
 import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
-  Param,
   Body,
-  Query,
+  Controller,
+  Delete,
+  Get,
   HttpCode,
   HttpStatus,
+  Param,
+  Post,
+  Put,
+  Query,
 } from '@nestjs/common';
-import { Roles, CurrentUser } from '@serveflow/auth/server';
 import type { AuthenticatedUser } from '@serveflow/auth';
+import { CurrentUser, Public, Roles } from '@serveflow/auth/server';
 import {
-  TenantsService,
   CreateTenantDto,
-  UpdateTenantDto,
   ListTenantsQuery,
+  TenantsService,
+  UpdateTenantDto,
 } from './tenants.service';
 
 // ════════════════════════════════════════════════════════════════
 // Tenants Controller (Admin API)
 // ════════════════════════════════════════════════════════════════
-// All endpoints require admin authentication (FusionAuthGuard global)
+// All endpoints require superadmin authentication (FusionAuthGuard global)
+// Only users with 'superadmin' role can access these endpoints
 // ════════════════════════════════════════════════════════════════
 
 @Controller('tenants')
+@Roles('superadmin') // Require superadmin role for all tenant operations
 export class TenantsController {
   constructor(private readonly tenantsService: TenantsService) {}
 
@@ -65,13 +67,11 @@ export class TenantsController {
    * POST /api/tenants
    * Create a new tenant with FusionAuth integration
    */
+  @Public()
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  async create(
-    @Body() dto: CreateTenantDto,
-    @CurrentUser() user: AuthenticatedUser
-  ) {
-    console.log(`[TenantsController] Creating tenant: ${dto.name} by ${user.email}`);
+  async create(@Body() dto: CreateTenantDto) {
+    console.log(`[TenantsController] Creating tenant: ${dto.name}`);
 
     const tenant = await this.tenantsService.create(dto);
 
@@ -106,7 +106,6 @@ export class TenantsController {
    * Delete a tenant (including FusionAuth cleanup)
    */
   @Delete(':slug')
-  @Roles('admin') // Only platform admins can delete tenants
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(
     @Param('slug') slug: string,

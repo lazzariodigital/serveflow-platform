@@ -7,6 +7,7 @@ import {
   getTenantDb,
   type Organization,
   type User,
+  type TenantRole,
 } from '@serveflow/db';
 import type { Db } from 'mongodb';
 import type { Connection, Model } from 'mongoose';
@@ -24,6 +25,7 @@ export interface TenantRequest extends Request {
   mongooseConnection: Connection;
   userModel: Model<User>;
   organizationModel: Model<Organization>;
+  tenantRoleModel: Model<TenantRole>;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -106,6 +108,7 @@ export class TenantMiddleware implements NestMiddleware {
       (req as TenantRequest).mongooseConnection = connection;
       (req as TenantRequest).userModel = await this.mongooseConnection.getUserModel(dbName);
       (req as TenantRequest).organizationModel = await this.mongooseConnection.getOrganizationModel(dbName);
+      (req as TenantRequest).tenantRoleModel = await this.mongooseConnection.getTenantRoleModel(dbName);
     } catch (dbError) {
       console.error('[TenantMiddleware] Database connection failed:', dbError);
       res.status(500).json({

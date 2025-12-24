@@ -1,0 +1,65 @@
+---
+apiVersion: "api.cerbos.dev/v1"
+resourcePolicy:
+  resource: "organization"
+  version: "default"
+
+  rules:
+    # ADMIN - Acceso total a todas las organizations
+    - name: admin_full_access
+      actions: ["*"]
+      effect: EFFECT_ALLOW
+      roles: ["admin"]
+
+    # EMPLOYEE - Listar organizations (filtrado server-side)
+    - name: employee_list
+      actions: ["list"]
+      effect: EFFECT_ALLOW
+      roles: ["employee"]
+
+    # EMPLOYEE - Ver organization específica a la que tiene acceso
+    - name: employee_view
+      actions: ["view"]
+      effect: EFFECT_ALLOW
+      roles: ["employee"]
+      condition:
+        match:
+          # organizationIds vacío = acceso a todas
+          # organizationIds con valores = solo esas
+          expr: >
+            size(P.attr.organizationIds) == 0 ||
+            R.id in P.attr.organizationIds
+
+    # PROVIDER - Listar organizations (filtrado server-side)
+    - name: provider_list
+      actions: ["list"]
+      effect: EFFECT_ALLOW
+      roles: ["provider"]
+
+    # PROVIDER - Ver organization específica a la que tiene acceso
+    - name: provider_view
+      actions: ["view"]
+      effect: EFFECT_ALLOW
+      roles: ["provider"]
+      condition:
+        match:
+          expr: >
+            size(P.attr.organizationIds) == 0 ||
+            R.id in P.attr.organizationIds
+
+    # CLIENT - Listar organizations (filtrado server-side)
+    - name: client_list
+      actions: ["list"]
+      effect: EFFECT_ALLOW
+      roles: ["client"]
+
+    # CLIENT - Ver organization específica a la que tiene acceso
+    - name: client_view
+      actions: ["view"]
+      effect: EFFECT_ALLOW
+      roles: ["client"]
+      condition:
+        match:
+          expr: >
+            size(P.attr.organizationIds) == 0 ||
+            R.id in P.attr.organizationIds

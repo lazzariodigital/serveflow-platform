@@ -5,6 +5,7 @@ import Button from '@mui/material/Button';
 import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
 import { useTenant } from '@serveflow/tenants/react';
+import { useCurrentUser } from '@serveflow/authorization/client';
 import Link from 'next/link';
 
 // ════════════════════════════════════════════════════════════════
@@ -13,6 +14,7 @@ import Link from 'next/link';
 
 export default function HomePage() {
   const { tenant } = useTenant();
+  const { isAuthenticated, user } = useCurrentUser();
 
   return (
     <Box
@@ -39,13 +41,26 @@ export default function HomePage() {
           {tenant?.branding?.appName || tenant?.name || 'Serveflow'}
         </Typography>
 
-        <Box sx={{ display: 'flex', gap: 2 }}>
-          <Button component={Link} href="/sign-in" variant="outlined">
-            Iniciar Sesion
-          </Button>
-          <Button component={Link} href="/sign-up" variant="contained">
-            Registrarse
-          </Button>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+          {isAuthenticated ? (
+            <>
+              <Typography variant="body2" color="text.secondary">
+                Hola, {user?.firstName || user?.email}
+              </Typography>
+              <Button component={Link} href="/profile" variant="outlined">
+                Mi Perfil
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button component={Link} href="/sign-in" variant="outlined">
+                Iniciar Sesión
+              </Button>
+              <Button component={Link} href="/sign-up" variant="contained">
+                Registrarse
+              </Button>
+            </>
+          )}
         </Box>
       </Box>
 

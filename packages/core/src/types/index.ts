@@ -15,6 +15,10 @@ export type {
   TenantAuthProviders,
   TenantAuthProviderGoogle,
   TenantAuthProviderGithub,
+  // Hito 1B: App Configuration (Authorization)
+  RouteConfig,
+  DashboardConfig,
+  WebappConfig,
 } from './tenant';
 
 // ════════════════════════════════════════════════════════════════

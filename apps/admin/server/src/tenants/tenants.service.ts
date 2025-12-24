@@ -1,39 +1,83 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
-import { Model } from 'mongoose';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import {
+  MongooseConnectionService,
+  RoleTemplate,
   Tenant,
-  listTenants,
-  getTenantBySlug,
-  getTenantById,
-  createTenantWithFusionAuth,
-  updateTenant,
-  deleteTenantWithFusionAuth,
   countTenants,
+  createTenantWithFusionAuthAndRoles,
+  deleteTenantWithFusionAuth,
+  getTenantById,
+  getTenantBySlug,
+  listTenants,
+  updateTenant,
   type TenantLookup,
+  type TenantWithRolesResult,
 } from '@serveflow/db';
+import { Model } from 'mongoose';
 
 // ════════════════════════════════════════════════════════════════
-// DTOs
+// DTOs (matching documentation structure)
 // ════════════════════════════════════════════════════════════════
 
 export interface CreateTenantDto {
   slug: string;
   name: string;
-  status?: 'active' | 'inactive' | 'suspended';
+  company?: {
+    legalName: string;
+    taxId: string;
+    address: {
+      street: string;
+      city: string;
+      postalCode: string;
+      country: string;
+      state?: string;
+    };
+  };
+  contact?: {
+    email: string;
+    phone?: string;
+  };
+  settings?: {
+    locale?: string;
+    timezone?: string;
+    currency?: string;
+  };
+  branding?: {
+    logo?: { url: string; darkUrl?: string };
+    favicon?: string;
+    appName?: string;
+  };
+  theming?: {
+    mode?: string;
+    preset?: string;
+  };
+  status?: 'active' | 'suspended';
   plan?: 'free' | 'starter' | 'pro' | 'enterprise';
-  metadata?: Record<string, unknown>;
 }
 
 export interface UpdateTenantDto {
   name?: string;
-  status?: 'active' | 'inactive' | 'suspended';
+  status?: 'active' | 'suspended';
   plan?: 'free' | 'starter' | 'pro' | 'enterprise';
-  metadata?: Record<string, unknown>;
+  settings?: {
+    locale?: string;
+    timezone?: string;
+    currency?: string;
+  };
+  branding?: {
+    logo?: { url: string; darkUrl?: string };
+    favicon?: string;
+    appName?: string;
+  };
+  theming?: {
+    mode?: string;
+    preset?: string;
+  };
 }
 
 export interface ListTenantsQuery {
-  status?: 'active' | 'inactive' | 'suspended';
+  status?: 'active' | 'suspended';
   limit?: number;
   skip?: number;
 }
@@ -45,7 +89,9 @@ export interface ListTenantsQuery {
 @Injectable()
 export class TenantsService {
   constructor(
-    @InjectModel(Tenant.name) private tenantModel: Model<Tenant>
+    @InjectModel(Tenant.name) private tenantModel: Model<Tenant>,
+    @InjectModel(RoleTemplate.name) private roleTemplateModel: Model<RoleTemplate>,
+    private connectionService: MongooseConnectionService
   ) {}
 
   /**
@@ -86,20 +132,34 @@ export class TenantsService {
   }
 
   /**
-   * Create a new tenant with FusionAuth integration
+   * Create a new tenant with FusionAuth integration and roles
+   *
+   * This function:
+   * 1. Creates FusionAuth Tenant + Application with roles from templates
+   * 2. Creates MongoDB tenant record in db_serveflow_sys
+   * 3. Creates tenant database (db_tenant_{slug})
+   * 4. Initializes tenant_roles from role_templates
    */
-  async create(dto: CreateTenantDto): Promise<TenantLookup> {
+  async create(dto: CreateTenantDto): Promise<TenantWithRolesResult> {
     // Check if slug already exists
     const existing = await getTenantBySlug(this.tenantModel, dto.slug);
     if (existing) {
       throw new ConflictException(`Tenant with slug '${dto.slug}' already exists`);
     }
 
-    // Create tenant with FusionAuth (handles FusionAuth tenant + app creation)
-    const tenant = await createTenantWithFusionAuth(this.tenantModel, dto);
+    // Create tenant with FusionAuth and roles
+    const result = await createTenantWithFusionAuthAndRoles(
+      this.tenantModel,
+      this.roleTemplateModel,
+      // Callback to get TenantRoleModel for the new tenant database
+      (dbName: string) => this.connectionService.getTenantRoleModel(dbName),
+      dto
+    );
 
-    console.log(`[TenantsService] Tenant created: ${tenant.slug} (${tenant._id})`);
-    return tenant;
+    console.log(`[TenantsService] Tenant created: ${result.slug} (${result._id})`);
+    console.log(`[TenantsService] Roles initialized: ${result.roles.map((r) => r.slug).join(', ')}`);
+
+    return result;
   }
 
   /**

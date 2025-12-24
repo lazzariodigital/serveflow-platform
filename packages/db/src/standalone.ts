@@ -7,6 +7,10 @@ import {
   GlobalUserSchema,
   Tenant,
   TenantSchema,
+  RoleTemplate,
+  RoleTemplateSchema,
+  TenantRole,
+  TenantRoleSchema,
 } from './schemas';
 
 // ════════════════════════════════════════════════════════════════
@@ -44,6 +48,7 @@ async function getSystemConnection(): Promise<Connection> {
 
   systemConnection.model(GlobalUser.name, GlobalUserSchema);
   systemConnection.model(Tenant.name, TenantSchema);
+  systemConnection.model(RoleTemplate.name, RoleTemplateSchema);
 
   return systemConnection;
 }
@@ -73,6 +78,7 @@ async function getTenantConnection(dbName: string): Promise<Connection> {
   }).asPromise();
 
   connection.model(User.name, UserSchema);
+  connection.model(TenantRole.name, TenantRoleSchema);
 
   tenantConnections.set(dbName, connection);
 
@@ -131,6 +137,48 @@ export async function getStandaloneUserModel(dbName: string): Promise<Model<User
 export async function getStandaloneUserModelBySlug(slug: string): Promise<Model<User>> {
   const dbName = `${TENANT_DB_PREFIX}${slug.replace(/-/g, '_')}`;
   return getStandaloneUserModel(dbName);
+}
+
+/**
+ * Gets the RoleTemplate model from the system database.
+ *
+ * Usage:
+ * ```typescript
+ * const roleTemplateModel = await getStandaloneRoleTemplateModel();
+ * const templates = await listRoleTemplates(roleTemplateModel);
+ * ```
+ */
+export async function getStandaloneRoleTemplateModel(): Promise<Model<RoleTemplate>> {
+  const connection = await getSystemConnection();
+  return connection.model<RoleTemplate>(RoleTemplate.name);
+}
+
+/**
+ * Gets the TenantRole model for a specific tenant database.
+ *
+ * Usage:
+ * ```typescript
+ * const tenantRoleModel = await getStandaloneTenantRoleModel('db_tenant_gimnasio');
+ * const roles = await listTenantRoles(tenantRoleModel);
+ * ```
+ */
+export async function getStandaloneTenantRoleModel(dbName: string): Promise<Model<TenantRole>> {
+  const connection = await getTenantConnection(dbName);
+  return connection.model<TenantRole>(TenantRole.name);
+}
+
+/**
+ * Gets the TenantRole model for a tenant by slug.
+ *
+ * Usage:
+ * ```typescript
+ * const tenantRoleModel = await getStandaloneTenantRoleModelBySlug('gimnasio-demo');
+ * const roles = await listTenantRoles(tenantRoleModel);
+ * ```
+ */
+export async function getStandaloneTenantRoleModelBySlug(slug: string): Promise<Model<TenantRole>> {
+  const dbName = `${TENANT_DB_PREFIX}${slug.replace(/-/g, '_')}`;
+  return getStandaloneTenantRoleModel(dbName);
 }
 
 // ════════════════════════════════════════════════════════════════

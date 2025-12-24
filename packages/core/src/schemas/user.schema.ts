@@ -195,16 +195,33 @@ export const ListUsersQuerySchema = z.object({
 
 /**
  * API Create User Request - Used by tenant-api POST /users
- * Includes password and sendInvitation which are used for Frontegg operations
+ *
+ * Flujo según documentación 03-PERMISOS.md sección 5.1:
+ * - roles: Qué ES el usuario (admin, employee, provider, client)
+ * - appAccess: A qué apps tiene acceso (dashboard, webapp)
+ * - organizationIds: En qué organizaciones está
  */
 export const CreateUserRequestSchema = z.object({
+  // Datos básicos
   email: z.string().email('Invalid email'),
   firstName: z.string().min(1, 'First name is required'),
   lastName: z.string().min(1, 'Last name is required'),
   password: z.string().min(8, 'Password must be at least 8 characters').optional(),
   phoneNumber: z.string().regex(/^\+\d{10,15}$/, 'Phone number must be in E.164 format').optional(),
   imageUrl: z.string().url().optional(),
-  organizationIds: z.array(z.string()).optional(),
+
+  // Roles: Qué ES el usuario (se guardan en user.data.roles de FusionAuth)
+  roles: z.array(z.enum(['admin', 'employee', 'provider', 'client'])).min(1, 'At least one role is required'),
+
+  // App Access: A qué apps puede acceder (genera registrations en FusionAuth)
+  // OPCIONAL: Si no se proporciona, se deriva automáticamente de los roles usando tenant_roles.allowedApps
+  appAccess: z.array(z.enum(['dashboard', 'webapp'])).optional(),
+
+  // Organizations: En qué organizaciones está el usuario
+  organizationIds: z.array(z.string()).optional().default([]),
+  primaryOrganizationId: z.string().optional(),
+
+  // Opciones
   sendInvitation: z.boolean().optional().default(false),
 });
 

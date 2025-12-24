@@ -54,52 +54,37 @@ export interface GoogleLoginResponse extends FusionAuthResponse {
 // ════════════════════════════════════════════════════════════════
 // Cookie utilities
 // ════════════════════════════════════════════════════════════════
-
-/**
- * Get cookie domain for subdomain support
- * For development: subdomain.localhost -> localhost (no leading dot for localhost)
- * For production: subdomain.example.com -> .example.com
- */
-function getCookieDomain(): string {
-  const hostname = window.location.hostname;
-
-  // For localhost subdomains (e.g., matching-academy.localhost)
-  // Set domain to 'localhost' to share cookies across subdomains
-  if (hostname.endsWith('.localhost') || hostname === 'localhost') {
-    return 'localhost';
-  }
-
-  // For production (e.g., demo.serveflow.app -> .serveflow.app)
-  const parts = hostname.split('.');
-  if (parts.length >= 2) {
-    return '.' + parts.slice(-2).join('.');
-  }
-
-  return hostname;
-}
+// SECURITY: Cookies are isolated per subdomain/tenant.
+// Each tenant (e.g., tenant1.serveflow.app, tenant2.serveflow.app)
+// has its own session cookies. This prevents session leakage.
+// ════════════════════════════════════════════════════════════════
 
 function setCookie(name: string, value: string, expiresAt?: number) {
   const expires = expiresAt
     ? new Date(expiresAt).toUTCString()
     : new Date(Date.now() + 60 * 60 * 1000).toUTCString(); // 1 hour default
-  const domain = getCookieDomain();
 
-  // For localhost, don't set domain attribute (browsers handle it correctly)
-  const domainAttr = domain === 'localhost' ? '' : `domain=${domain};`;
+  // No domain attribute = cookie is scoped to current hostname only
+  // This isolates sessions per tenant subdomain
+  document.cookie = `${name}=${value}; path=/; expires=${expires}; SameSite=Lax`;
 
-  document.cookie = `${name}=${value}; path=/; ${domainAttr}expires=${expires}; SameSite=Lax`;
-
-  console.log(`[FusionAuth] Cookie set: ${name}, domain: ${domain || 'default'}`);
+  console.log(`[FusionAuth] Cookie set: ${name} (isolated to ${window.location.hostname})`);
 }
 
 function deleteCookie(name: string) {
-  const domain = getCookieDomain();
-  const domainAttr = domain === 'localhost' ? '' : `domain=${domain};`;
-
-  document.cookie = `${name}=; path=/; ${domainAttr}expires=Thu, 01 Jan 1970 00:00:00 GMT`;
-
-  // Also try to delete without domain for cleanup
+  // Delete cookie for current hostname
   document.cookie = `${name}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+
+  // Also try with explicit domain variations for cleanup of legacy cookies
+  const hostname = window.location.hostname;
+  document.cookie = `${name}=; path=/; domain=${hostname}; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+
+  // Clean up old shared cookies if they exist
+  if (hostname.includes('.')) {
+    const parts = hostname.split('.');
+    const parentDomain = '.' + parts.slice(-2).join('.');
+    document.cookie = `${name}=; path=/; domain=${parentDomain}; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+  }
 }
 
 /**
@@ -234,8 +219,16 @@ export function useFusionAuth(options: UseFusionAuthOptions = {}) {
       const text = await response.text();
       const data = text ? JSON.parse(text) : {};
 
-      // 202 = Two-factor required
+      // 202 = User exists but NOT registered for this application
       if (response.status === 202) {
+        console.error('[FusionAuth] User not registered for app:', applicationId);
+        const noAccessError = 'No tienes acceso a esta aplicación';
+        setError(noAccessError);
+        throw new Error(noAccessError);
+      }
+
+      // 242 = Two-factor required
+      if (response.status === 242) {
         return {
           token: '',
           twoFactorId: data.twoFactorId,
@@ -466,14 +459,17 @@ export function useFusionAuth(options: UseFusionAuthOptions = {}) {
 
       // Status codes:
       // 200 = Login successful
-      // 202 = User needs to complete registration
+      // 202 = User exists but NOT registered for this application
       // 212 = Pending email verification
       // 232 = Pending identity provider link
       // 242 = Two-factor required
 
       if (response.status === 202) {
-        // User is new, may need to complete profile
-        return { ...data, needsRegistration: true, token: '' };
+        // User exists but not registered for this app
+        console.error('[FusionAuth] Google user not registered for app:', applicationId);
+        const noAccessError = 'No tienes acceso a esta aplicación';
+        setError(noAccessError);
+        throw new Error(noAccessError);
       }
 
       if (response.status === 242) {

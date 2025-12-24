@@ -33,16 +33,30 @@ interface TwoFactorFormData {
 export type SignInViewProps = {
   signUpPath?: string;
   redirectPath?: string;
+  /**
+   * Which app this sign-in is for - determines which FusionAuth application ID to use.
+   * - 'dashboard': Uses tenant.fusionauthApplications.dashboard.id
+   * - 'webapp': Uses tenant.fusionauthApplications.webapp.id
+   * @default 'dashboard'
+   */
+  appType?: 'dashboard' | 'webapp';
 };
 
 export function SignInView({
   signUpPath = '/sign-up',
   redirectPath = '/',
+  appType = 'dashboard',
 }: SignInViewProps) {
   const router = useRouter();
   const { tenant } = useTenant();
+
+  // Get the correct applicationId based on appType
+  const applicationId = appType === 'webapp'
+    ? tenant?.fusionauthApplications?.webapp?.id
+    : tenant?.fusionauthApplications?.dashboard?.id;
+
   const { login, verifyTwoFactor, completeGoogleLogin, isLoading } = useFusionAuth({
-    applicationId: tenant?.fusionauthApplicationId,
+    applicationId,
     tenantId: tenant?.fusionauthTenantId,
   });
   const authProviders = useTenantAuthProviders();

@@ -1,11 +1,20 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import {
+  canAccessApp,
+  canAccessRoute,
+  type DashboardRoute,
+  type TenantRole,
+} from '@serveflow/authorization/client';
 
 // ════════════════════════════════════════════════════════════════
-// FusionAuth Middleware for Multi-Tenant Authentication
+// FusionAuth Middleware for Multi-Tenant Dashboard
 // ════════════════════════════════════════════════════════════════
-// Each tenant has its own FusionAuth tenant + application
+// Each tenant has its own FusionAuth tenant + applications
 // Authentication is handled via FusionAuth cookies (fa_access_token)
+// Authorization checks:
+// 1. User's role must have 'dashboard' in allowedApps (from tenant_roles)
+// 2. User's role must have access to the specific route (from dashboardConfig)
 // ════════════════════════════════════════════════════════════════
 
 // Public routes - no auth required
@@ -18,6 +27,7 @@ const publicRoutes = [
   '/account/login',
   '/account/logout',
   '/account/callback',
+  '/unauthorized',
 ];
 
 // Auth routes - should redirect to home if already logged in
@@ -56,6 +66,65 @@ function extractTenantSlug(host: string): string | null {
   }
 
   return null;
+}
+
+// ════════════════════════════════════════════════════════════════
+// Fetch tenant_roles from API (for canAccessApp)
+// ════════════════════════════════════════════════════════════════
+async function fetchTenantRoles(tenantSlug: string): Promise<TenantRole[]> {
+  try {
+    const apiUrl = process.env.TENANT_SERVER_URL || 'http://localhost:3100';
+    const response = await fetch(`${apiUrl}/api/roles/allowed-apps`, {
+      headers: {
+        'x-tenant-slug': tenantSlug,
+      },
+      next: { revalidate: 60 }, // Cache for 60 seconds
+    });
+
+    if (!response.ok) {
+      console.error(`[Middleware] Failed to fetch tenant roles: ${response.status}`);
+      return [];
+    }
+
+    const data = await response.json();
+    // API returns { success: true, data: [{ slug, allowedApps }] }
+    // We need to map to TenantRole format
+    return (data.data || []).map((r: { slug: string; allowedApps: string[] }) => ({
+      slug: r.slug,
+      allowedApps: r.allowedApps,
+      isActive: true,
+    }));
+  } catch (error) {
+    console.error('[Middleware] Error fetching tenant roles:', error);
+    return [];
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// Fetch dashboard config from API (for canAccessRoute)
+// ════════════════════════════════════════════════════════════════
+async function fetchDashboardConfig(tenantSlug: string): Promise<DashboardRoute[]> {
+  try {
+    const apiUrl = process.env.TENANT_SERVER_URL || 'http://localhost:3100';
+    const response = await fetch(`${apiUrl}/api/settings/dashboard-config`, {
+      headers: {
+        'x-tenant-slug': tenantSlug,
+      },
+      next: { revalidate: 60 }, // Cache for 60 seconds
+    });
+
+    if (!response.ok) {
+      console.error(`[Middleware] Failed to fetch dashboard config: ${response.status}`);
+      return [];
+    }
+
+    const data = await response.json();
+    // API returns { success: true, data: { routes, defaultRoute } }
+    return data.data?.routes || [];
+  } catch (error) {
+    console.error('[Middleware] Error fetching dashboard config:', error);
+    return [];
+  }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -130,26 +199,20 @@ export async function middleware(req: NextRequest) {
   // ════════════════════════════════════════════════════════════════
   // 3. Extract FusionAuth access token from cookies
   // ════════════════════════════════════════════════════════════════
-  // FusionAuth token stored in cookie 'fa_access_token'
-  const accessToken =
-    req.cookies.get('fa_access_token')?.value;
+  const accessToken = req.cookies.get('fa_access_token')?.value;
 
   // ════════════════════════════════════════════════════════════════
   // 4. Verify authentication for protected routes
   // ════════════════════════════════════════════════════════════════
   if (!accessToken) {
-    // Not authenticated - redirect to sign-in
     const signInUrl = new URL('/sign-in', req.url);
     signInUrl.searchParams.set('redirect_url', req.url);
     return NextResponse.redirect(signInUrl);
   }
 
-  // Basic token structure check in middleware
-  // Full JWKS verification happens in the backend FusionAuthGuard
   const tokenResult = await verifyFusionAuthToken(accessToken);
 
   if (!tokenResult.valid) {
-    // Invalid token - redirect to sign-in
     const signInUrl = new URL('/sign-in', req.url);
     signInUrl.searchParams.set('redirect_url', req.url);
     return NextResponse.redirect(signInUrl);
@@ -162,8 +225,41 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL('/', req.url));
   }
 
+  const userRoles = tokenResult.roles || [];
+
   // ════════════════════════════════════════════════════════════════
-  // 6. Inject context headers for Server Components
+  // 6. AUTHORIZATION: Check if user can access Dashboard app
+  // ════════════════════════════════════════════════════════════════
+  // Load tenant_roles from API and check allowedApps
+  if (!tenantSlug) {
+    console.error('[Middleware] No tenant slug - cannot authorize');
+    return NextResponse.redirect(new URL('/unauthorized', req.url));
+  }
+
+  const tenantRoles = await fetchTenantRoles(tenantSlug);
+
+  if (!canAccessApp(userRoles, 'dashboard', tenantRoles)) {
+    console.warn(
+      `[Middleware] Dashboard access denied: user ${tokenResult.email} with roles [${userRoles.join(', ')}] cannot access dashboard`
+    );
+    return NextResponse.redirect(new URL('/unauthorized', req.url));
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // 7. AUTHORIZATION: Check route access based on roles
+  // ════════════════════════════════════════════════════════════════
+  // Load tenant dashboard_config from API
+  const routes: DashboardRoute[] = await fetchDashboardConfig(tenantSlug);
+
+  if (!canAccessRoute(pathname, userRoles, routes)) {
+    console.warn(
+      `[Middleware] Route access denied: user ${tokenResult.email} with roles [${userRoles.join(', ')}] cannot access ${pathname}`
+    );
+    return NextResponse.redirect(new URL('/unauthorized', req.url));
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // 8. Inject context headers for Server Components
   // ════════════════════════════════════════════════════════════════
   const response = NextResponse.next();
 
@@ -178,6 +274,9 @@ export async function middleware(req: NextRequest) {
   }
   if (tokenResult.applicationId) {
     response.headers.set('x-fusionauth-application-id', tokenResult.applicationId);
+  }
+  if (tokenResult.roles) {
+    response.headers.set('x-user-roles', JSON.stringify(tokenResult.roles));
   }
 
   return response;

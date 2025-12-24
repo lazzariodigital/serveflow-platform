@@ -1,0 +1,47 @@
+version: "3.8"
+
+services:
+  cerbos:
+    image: ghcr.io/cerbos/cerbos:latest
+    container_name: serveflow-cerbos
+    ports:
+      - "3592:3592"  # HTTP API
+      - "3593:3593"  # gRPC API
+    volumes:
+      - ./cerbos.yaml:/cerbos.yaml:ro
+      - ./policies:/policies:ro
+    command: ["server", "--config=/cerbos.yaml"]
+    depends_on:
+      cerbos-postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - cerbos-network
+
+  cerbos-postgres:
+    image: postgres:15-alpine
+    container_name: serveflow-cerbos-postgres
+    environment:
+      POSTGRES_DB: cerbos
+      POSTGRES_USER: cerbos
+      POSTGRES_PASSWORD: ${CERBOS_POSTGRES_PASSWORD:-cerbos_secret}
+    ports:
+      - "5433:5432"  # Puerto diferente para no conflicto
+    volumes:
+      - cerbos_postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cerbos -d cerbos"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - cerbos-network
+
+volumes:
+  cerbos_postgres_data:
+
+networks:
+  cerbos-network:
+    driver: bridge

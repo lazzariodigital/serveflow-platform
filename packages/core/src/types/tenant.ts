@@ -142,6 +142,39 @@ export interface TenantAuthProviders {
 }
 
 // ════════════════════════════════════════════════════════════════
+// FusionAuth Applications Structure
+// ════════════════════════════════════════════════════════════════
+
+export interface FusionAuthApplications {
+  dashboard: { id: string };  // Admin/employee app
+  webapp: { id: string };     // Provider/client app
+}
+
+// ════════════════════════════════════════════════════════════════
+// Route Configuration (Hito 1B - Authorization)
+// ════════════════════════════════════════════════════════════════
+
+export interface RouteConfig {
+  path: string;
+  label: string;
+  icon: string;
+  allowedRoles: string[];
+  isEnabled: boolean;
+  order: number;
+  children?: RouteConfig[];
+}
+
+export interface DashboardConfig {
+  routes: RouteConfig[];
+  defaultRoute: string;
+}
+
+export interface WebappConfig {
+  routes: RouteConfig[];
+  defaultRoute: string;
+}
+
+// ════════════════════════════════════════════════════════════════
 // Full Tenant Interface (all phases)
 // ════════════════════════════════════════════════════════════════
 
@@ -150,7 +183,7 @@ export interface Tenant extends BaseDocument {
   slug: string;
   name: string;
   fusionauthTenantId: string;
-  fusionauthApplicationId: string;
+  fusionauthApplications: FusionAuthApplications;
   database: TenantDatabase;
   company: TenantCompany;
   contact: Contact;
@@ -158,6 +191,10 @@ export interface Tenant extends BaseDocument {
   branding: TenantBranding;
   theming: TenantTheming;
   status: TenantStatus;
+
+  // Hito 1B: App Configuration (Authorization)
+  dashboardConfig: DashboardConfig;
+  webappConfig: WebappConfig;
 
   // Phase 2: Business
   plan?: TenantPlan;
@@ -181,7 +218,7 @@ export interface TenantMVP extends BaseDocument {
   slug: string;
   name: string;
   fusionauthTenantId: string;
-  fusionauthApplicationId: string;
+  fusionauthApplications: FusionAuthApplications;
   database: TenantDatabase;
   company: TenantCompany;
   contact: Contact;
@@ -189,6 +226,9 @@ export interface TenantMVP extends BaseDocument {
   branding: TenantBranding;
   theming: TenantTheming;
   status: 'active' | 'suspended';
+  // Hito 1B: App Configuration (Authorization)
+  dashboardConfig: DashboardConfig;
+  webappConfig: WebappConfig;
   // Social login configuration (optional)
   authProviders?: TenantAuthProviders;
 }
@@ -201,7 +241,7 @@ export interface CreateTenantInput {
   slug: string;
   name: string;
   fusionauthTenantId: string;
-  fusionauthApplicationId: string;
+  fusionauthApplications: FusionAuthApplications;
   ownerEmail: string;
   company: TenantCompany;
   contact: Pick<Contact, 'email' | 'phone'>;

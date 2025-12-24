@@ -13,6 +13,7 @@ export {
 // User Operations
 export {
   createFusionAuthUser,
+  createFusionAuthUserWithApps,
   getFusionAuthUser,
   getFusionAuthUserByEmail,
   updateFusionAuthUser,
@@ -22,6 +23,13 @@ export {
   searchFusionAuthUsers,
   assignUserRoles,
   removeUserRoles,
+  // Organization Management
+  getUserOrganizationIds,
+  setUserOrganizations,
+  assignUserToOrganization,
+  removeUserFromOrganization,
+  setUserPrimaryOrganization,
+  userHasOrganizationAccess,
 } from './users';
 
 // Tenant & Application Operations
@@ -33,10 +41,26 @@ export {
   getFusionAuthApplication,
   deleteFusionAuthApplication,
   createFusionAuthTenantWithApplication,
+  createFusionAuthTenantWithApplications,  // Creates 2 apps (Dashboard + WebApp) + JWT Lambda
   deleteFusionAuthTenantWithApplication,
+  // Lambda Operations (Global - shared across all tenants)
+  getGlobalJwtPopulateLambdaId,
+  createGlobalJwtPopulateLambda,
+  ensureGlobalJwtPopulateLambda,
+  createJwtPopulateLambda,  // @deprecated - use global lambda instead
+  // Application Role Operations
+  updateApplicationRoles,
+  getApplicationRoles,
+  addApplicationRole,
+  removeApplicationRole,
+  type AppType,
   type CreateFusionAuthTenantInput,
   type CreateFusionAuthApplicationInput,
   type FusionAuthTenantResult,
   type FusionAuthApplicationResult,
   type CreateTenantWithApplicationResult,
+  type CreateTenantWithApplicationsResult,
+  type UpdateApplicationRolesInput,
+  type ApplicationRoleResult,
+  type CreateLambdaResult,
 } from './tenants';

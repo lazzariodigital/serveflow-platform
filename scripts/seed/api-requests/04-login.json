@@ -1,0 +1,102 @@
+{
+  "_comment": "Obtener token de acceso para autenticación",
+  "_note": "FusionAuth usa OAuth2. Puedes obtener tokens de varias formas.",
+
+  "option_1_fusionauth_login_api": {
+    "_comment": "Login directo con FusionAuth (para testing)",
+    "_url": "http://localhost:9011/api/login",
+    "_method": "POST",
+    "_headers": {
+      "Content-Type": "application/json",
+      "X-FusionAuth-TenantId": "{{fusionauth_tenant_id}}"
+    },
+    "request": {
+      "loginId": "admin@fitmax.es",
+      "password": "Test1234!",
+      "applicationId": "{{dashboard_app_id}}"
+    },
+    "_expected_response": {
+      "token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIs...",
+      "refreshToken": "...",
+      "user": {
+        "id": "<fusionauth_user_id>",
+        "email": "admin@fitmax.es",
+        "tenantId": "<fusionauth_tenant_id>"
+      }
+    },
+    "_usage": "Usar el 'token' en el header Authorization: Bearer <token>"
+  },
+
+  "option_2_resource_owner_password_grant": {
+    "_comment": "OAuth2 Resource Owner Password Grant (para testing)",
+    "_url": "http://localhost:9011/oauth2/token",
+    "_method": "POST",
+    "_headers": {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    "_body_form_urlencoded": {
+      "grant_type": "password",
+      "client_id": "{{dashboard_app_id}}",
+      "username": "admin@fitmax.es",
+      "password": "Test1234!",
+      "scope": "openid offline_access"
+    },
+    "_expected_response": {
+      "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIs...",
+      "refresh_token": "...",
+      "token_type": "Bearer",
+      "expires_in": 3600
+    }
+  },
+
+  "option_3_webapp_login": {
+    "_comment": "Para usuarios de webapp (providers, clients)",
+    "_url": "http://localhost:9011/api/login",
+    "_method": "POST",
+    "_headers": {
+      "Content-Type": "application/json",
+      "X-FusionAuth-TenantId": "{{fusionauth_tenant_id}}"
+    },
+    "request": {
+      "loginId": "trainer@fitmax.es",
+      "password": "Test1234!",
+      "applicationId": "{{webapp_app_id}}"
+    }
+  },
+
+  "_jwt_claims": {
+    "_comment": "El JWT Populate Lambda añade estos claims personalizados",
+    "example_decoded_jwt": {
+      "sub": "<fusionauth_user_id>",
+      "email": "admin@fitmax.es",
+      "applicationId": "{{dashboard_app_id}}",
+      "roles": ["admin"],
+      "tenantSlug": "gimnasio-fitmax",
+      "organizationIds": [],
+      "primaryOrganizationId": null,
+      "allRoles": ["admin"]
+    }
+  },
+
+  "_variables_needed": {
+    "fusionauth_tenant_id": "Obtener de 01-create-tenant.json response.data.fusionauthTenantId",
+    "dashboard_app_id": "Obtener de 01-create-tenant.json response.data.fusionauthApplications.dashboard.id",
+    "webapp_app_id": "Obtener de 01-create-tenant.json response.data.fusionauthApplications.webapp.id"
+  },
+
+  "_test_credentials": {
+    "_password_all": "Test1234!",
+    "dashboard_users": [
+      { "email": "admin@fitmax.es", "roles": ["admin"], "orgs": "ALL" },
+      { "email": "empleado.madrid@fitmax.es", "roles": ["employee"], "orgs": "Madrid sedes" },
+      { "email": "empleado.barcelona@fitmax.es", "roles": ["employee"], "orgs": "Barcelona" }
+    ],
+    "webapp_users": [
+      { "email": "trainer@fitmax.es", "roles": ["provider"], "orgs": "Madrid Centro/Norte" },
+      { "email": "cliente.premium@fitmax.es", "roles": ["client"], "orgs": "ALL" },
+      { "email": "cliente@fitmax.es", "roles": ["client"], "orgs": "Madrid Centro" }
+    ]
+  },
+
+  "_next_step": "05-test-organization-filtering.json"
+}

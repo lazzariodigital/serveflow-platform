@@ -1,10 +1,10 @@
-import { ForbiddenError, UserNotFoundError } from '../../components/errors';
-
 import { redirect } from 'next/navigation';
 import { CurrentUserProvider } from '../../context/CurrentUserContext';
 import { DashboardLayoutWrapper } from '../../components/dashboard-layout-wrapper';
 import { getCurrentUser } from '../../lib/get-current-user';
 import { getTenantFromHeaders } from '../../lib/get-tenant';
+import { getOrganizations } from '../../lib/get-organizations';
+import { OrganizationProvider } from '@serveflow/authorization/client';
 
 // Force dynamic rendering - layout requires runtime database access
 export const dynamic = 'force-dynamic';
@@ -21,53 +21,41 @@ export default async function DashboardGroupLayout({
 
   if (!tenant) {
     console.error('[DashboardLayout] Tenant not found:', tenantError);
-    // Redirect to a generic error or landing page
     redirect('/');
   }
 
   // 2. Get current user (verifies membership + fetches from MongoDB)
   const { user, error } = await getCurrentUser(tenant);
 
-  // 3. Handle errors
+  // 3. Handle errors - redirect to sign-in for any auth issue
   if (error) {
-    switch (error.type) {
-      case 'UNAUTHORIZED':
-        // User not logged in - redirect to sign-in
-        redirect('/sign-in');
-        
-      case 'FORBIDDEN':
-        // User not a member of this organization
-        return <ForbiddenError message={error.message} />;
-
-      case 'USER_NOT_FOUND':
-        // User exists in Clerk but not in MongoDB
-        return <UserNotFoundError message={error.message} />;
-
-      case 'INTERNAL':
-      default:
-        // Internal error - show forbidden with generic message
-        return <ForbiddenError message="Error interno. Por favor, intenta de nuevo." />;
-    }
+    console.error('[DashboardLayout] Auth error:', error.type, error.message);
+    redirect('/sign-in');
   }
 
-  // 4. User is valid - render the dashboard
+  // 4. Get organizations for the OrganizationProvider
+  const { organizations } = await getOrganizations();
+
+  // 5. User is valid - render the dashboard
   return (
     <CurrentUserProvider user={user!}>
-      <DashboardLayoutWrapper
-        user={{
-          id: user!._id?.toString(),
-          email: user!.email,
-          firstName: user!.firstName,
-          lastName: user!.lastName,
-          displayName: `${user!.firstName} ${user!.lastName}`.trim(),
-          photoURL: user!.imageUrl,
-        }}
-        slots={{
-          hideLanguage: true, // For now, hide language selector
-        }}
-      >
-        {children}
-      </DashboardLayoutWrapper>
+      <OrganizationProvider organizations={organizations}>
+        <DashboardLayoutWrapper
+          user={{
+            id: user!._id?.toString(),
+            email: user!.email,
+            firstName: user!.firstName,
+            lastName: user!.lastName,
+            displayName: `${user!.firstName} ${user!.lastName}`.trim(),
+            photoURL: user!.imageUrl,
+          }}
+          slots={{
+            hideLanguage: true, // For now, hide language selector
+          }}
+        >
+          {children}
+        </DashboardLayoutWrapper>
+      </OrganizationProvider>
     </CurrentUserProvider>
   );
 }

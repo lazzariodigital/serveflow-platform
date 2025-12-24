@@ -10,6 +10,10 @@ import {
   TenantSchema,
   Organization,
   OrganizationSchema,
+  RoleTemplate,
+  RoleTemplateSchema,
+  TenantRole,
+  TenantRoleSchema,
 } from './schemas';
 
 @Injectable()
@@ -36,6 +40,7 @@ export class MongooseConnectionService implements OnModuleDestroy {
     // Registrar models del sistema
     this.systemConnection.model(GlobalUser.name, GlobalUserSchema);
     this.systemConnection.model(Tenant.name, TenantSchema);
+    this.systemConnection.model(RoleTemplate.name, RoleTemplateSchema);
 
     console.log(`[MongoDB] Connected to system database: ${SYSTEM_DB_NAME}`);
 
@@ -70,6 +75,7 @@ export class MongooseConnectionService implements OnModuleDestroy {
     // Registrar models del tenant
     connection.model(User.name, UserSchema);
     connection.model(Organization.name, OrganizationSchema);
+    connection.model(TenantRole.name, TenantRoleSchema);
 
     this.tenantConnections.set(dbName, connection);
 
@@ -105,6 +111,16 @@ export class MongooseConnectionService implements OnModuleDestroy {
   async getOrganizationModel(dbName: string): Promise<Model<Organization>> {
     const connection = await this.getTenantConnection(dbName);
     return connection.model<Organization>(Organization.name);
+  }
+
+  async getRoleTemplateModel(): Promise<Model<RoleTemplate>> {
+    const connection = await this.getSystemConnection();
+    return connection.model<RoleTemplate>(RoleTemplate.name);
+  }
+
+  async getTenantRoleModel(dbName: string): Promise<Model<TenantRole>> {
+    const connection = await this.getTenantConnection(dbName);
+    return connection.model<TenantRole>(TenantRole.name);
   }
 
   // ════════════════════════════════════════════════════════════════

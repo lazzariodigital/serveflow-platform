@@ -17,6 +17,9 @@
     "paths": {
       "@serveflow/auth": ["packages/auth/src/index.ts"],
       "@serveflow/auth/server": ["packages/auth/src/server.ts"],
+      "@serveflow/authorization": ["packages/authorization/src/index.ts"],
+      "@serveflow/authorization/client": ["packages/authorization/src/client.ts"],
+      "@serveflow/authorization/server": ["packages/authorization/src/server.ts"],
       "@serveflow/config": ["packages/config/src/index.ts"],
       "@serveflow/core": ["packages/core/src/index.ts"],
       "@serveflow/core/pipes": ["packages/core/src/pipes/index.ts"],

@@ -1,0 +1,162 @@
+{
+  "_comment": "POST /api/organizations - Crear organizaciones (sedes) del tenant",
+  "_url": "http://gimnasio-fitmax.localhost:3000/api/organizations",
+  "_method": "POST",
+  "_headers": {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer {{admin_token}}"
+  },
+  "_note": "Requiere rol 'admin'. El tenant se identifica por el subdominio (gimnasio-fitmax.localhost).",
+  "_prerequisite": "Primero ejecutar 01-create-tenant.json y obtener token de admin",
+
+  "organizations": [
+    {
+      "_comment": "Organización 1: Madrid Centro",
+      "request": {
+        "slug": "madrid-centro",
+        "name": "Madrid Centro",
+        "description": "Sede principal en el centro de Madrid",
+        "address": {
+          "street": "Calle Gran Vía 28",
+          "city": "Madrid",
+          "state": "Madrid",
+          "postalCode": "28013",
+          "country": "Spain",
+          "coordinates": {
+            "lat": 40.4200,
+            "lng": -3.7050
+          }
+        },
+        "contact": {
+          "phone": "+34 91 123 4567",
+          "email": "centro@fitmax.es"
+        },
+        "settings": {
+          "timezone": "Europe/Madrid",
+          "currency": "EUR"
+        }
+      }
+    },
+    {
+      "_comment": "Organización 2: Madrid Norte",
+      "request": {
+        "slug": "madrid-norte",
+        "name": "Madrid Norte",
+        "description": "Sede norte de Madrid, zona Castellana",
+        "address": {
+          "street": "Paseo de la Castellana 200",
+          "city": "Madrid",
+          "state": "Madrid",
+          "postalCode": "28046",
+          "country": "Spain",
+          "coordinates": {
+            "lat": 40.4650,
+            "lng": -3.6900
+          }
+        },
+        "contact": {
+          "phone": "+34 91 234 5678",
+          "email": "norte@fitmax.es"
+        },
+        "settings": {
+          "timezone": "Europe/Madrid",
+          "currency": "EUR"
+        }
+      }
+    },
+    {
+      "_comment": "Organización 3: Madrid Sur",
+      "request": {
+        "slug": "madrid-sur",
+        "name": "Madrid Sur",
+        "description": "Sede sur de Madrid",
+        "address": {
+          "street": "Avenida de Andalucía 15",
+          "city": "Madrid",
+          "state": "Madrid",
+          "postalCode": "28041",
+          "country": "Spain",
+          "coordinates": {
+            "lat": 40.3750,
+            "lng": -3.6950
+          }
+        },
+        "contact": {
+          "phone": "+34 91 345 6789",
+          "email": "sur@fitmax.es"
+        },
+        "settings": {
+          "timezone": "Europe/Madrid",
+          "currency": "EUR"
+        }
+      }
+    },
+    {
+      "_comment": "Organización 4: Barcelona Eixample",
+      "request": {
+        "slug": "barcelona-eixample",
+        "name": "Barcelona Eixample",
+        "description": "Sede Barcelona en el distrito Eixample",
+        "address": {
+          "street": "Passeig de Gràcia 50",
+          "city": "Barcelona",
+          "state": "Cataluña",
+          "postalCode": "08007",
+          "country": "Spain",
+          "coordinates": {
+            "lat": 41.3930,
+            "lng": 2.1640
+          }
+        },
+        "contact": {
+          "phone": "+34 93 123 4567",
+          "email": "eixample@fitmax.es"
+        },
+        "settings": {
+          "timezone": "Europe/Madrid",
+          "currency": "EUR"
+        }
+      }
+    },
+    {
+      "_comment": "Organización 5: Valencia Centro",
+      "request": {
+        "slug": "valencia-centro",
+        "name": "Valencia Centro",
+        "description": "Sede Valencia en el centro de la ciudad",
+        "address": {
+          "street": "Calle Colón 25",
+          "city": "Valencia",
+          "state": "Valencia",
+          "postalCode": "46004",
+          "country": "Spain",
+          "coordinates": {
+            "lat": 39.4700,
+            "lng": -0.3760
+          }
+        },
+        "contact": {
+          "phone": "+34 96 123 4567",
+          "email": "valencia@fitmax.es"
+        },
+        "settings": {
+          "timezone": "Europe/Madrid",
+          "currency": "EUR"
+        }
+      }
+    }
+  ],
+
+  "_expected_response_per_org": {
+    "success": true,
+    "data": {
+      "_id": "<mongodb_id>",
+      "slug": "madrid-centro",
+      "name": "Madrid Centro",
+      "isActive": true
+    },
+    "message": "Organization created successfully"
+  },
+
+  "_next_step": "03-create-users.json"
+}

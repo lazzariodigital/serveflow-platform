@@ -1,0 +1,9 @@
+{
+  "name": "serveflow-authorization",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "packages/authorization/src",
+  "projectType": "library",
+  "tags": [],
+  "// targets": "to see all targets run: nx show project serveflow-authorization --web",
+  "targets": {}
+}

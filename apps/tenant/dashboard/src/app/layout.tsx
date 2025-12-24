@@ -4,7 +4,7 @@ import type { ThemePreset } from '@serveflow/ui';
 import { SettingsProvider, ThemeProvider, defaultSettings } from '@serveflow/ui';
 import { getTenantFromHeaders, getTenantMetadata } from '../lib/get-tenant';
 
-import { TenantProvider } from '@serveflow/tenants/react';
+import { TenantProvider, TenantNotFound } from '@serveflow/tenants/react';
 
 // Force dynamic rendering - layout requires runtime database access
 export const dynamic = 'force-dynamic';
@@ -18,7 +18,21 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { tenant, error } = await getTenantFromHeaders();
+  const { tenant, error, attemptedSlug } = await getTenantFromHeaders();
+
+  // ════════════════════════════════════════════════════════════════
+  // Tenant Not Found - Show error page
+  // ════════════════════════════════════════════════════════════════
+  if (!tenant && error) {
+    return (
+      <html lang="es" suppressHydrationWarning>
+        <body>
+          <TenantNotFound slug={attemptedSlug} error={error} />
+        </body>
+      </html>
+    );
+  }
+
   const themeMode = tenant?.theming?.mode || 'light';
   // Cast preset to ThemePreset (core uses preset1-5, ui uses named presets)
   const themePreset = (tenant?.theming?.preset || 'default') as ThemePreset;

@@ -1,0 +1,31 @@
+---
+server:
+  httpListenAddr: ":3592"
+  grpcListenAddr: ":3593"
+  adminAPI:
+    enabled: true
+    # Sin credenciales para desarrollo local
+
+# Storage principal: disco para desarrollo
+# En producción, usar PostgreSQL para scoped policies dinámicas
+storage:
+  driver: disk
+  disk:
+    directory: /policies
+    watchForChanges: true
+
+# Para producción con PostgreSQL (descomentar):
+# storage:
+#   driver: postgres
+#   postgres:
+#     url: "postgres://cerbos:${CERBOS_POSTGRES_PASSWORD}@cerbos-postgres:5432/cerbos?sslmode=disable"
+
+schema:
+  enforcement: warn  # warn en dev, reject en prod
+
+audit:
+  enabled: true
+  backend: local
+  local:
+    storagePath: /tmp/cerbos-audit
+    retentionPeriod: 168h  # 7 días

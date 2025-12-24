@@ -2,10 +2,14 @@
   "name": "@platform/source",
   "version": "0.0.0",
   "license": "MIT",
-  "scripts": {},
+  "scripts": {
+    "seed": "npx ts-node -P scripts/tsconfig.json scripts/seed/seed-tenants.ts",
+    "seed:clean": "npx ts-node -P scripts/tsconfig.json scripts/seed/seed-tenants.ts --clean"
+  },
   "private": true,
   "dependencies": {
-    "@clerk/backend": "^2.27.0",
+    "@cerbos/core": "^0.18.0",
+    "@cerbos/grpc": "^0.18.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@fontsource-variable/dm-sans": "^5.1.1",
@@ -13,8 +17,6 @@
     "@fontsource-variable/nunito-sans": "^5.1.1",
     "@fontsource-variable/public-sans": "^5.1.2",
     "@fontsource/barlow": "^5.1.1",
-    "@frontegg/nextjs": "^9.2.9",
-    "@frontegg/rest-api": "^7.79.0",
     "@fusionauth/typescript-client": "^1.61.0",
     "@grpc/grpc-js": "^1.14.2",
     "@iconify/react": "^6.0.2",

@@ -1,0 +1,244 @@
+{
+  "tenants": [
+    {
+      "slug": "gimnasio-fitmax",
+      "name": "Gimnasio FitMax",
+      "plan": "enterprise",
+      "branding": {
+        "primaryColor": "#FF5722",
+        "appName": "FitMax"
+      },
+      "organizations": [
+        {
+          "slug": "madrid-centro",
+          "name": "Madrid Centro",
+          "address": {
+            "street": "Calle Gran Vía 28",
+            "city": "Madrid",
+            "postalCode": "28013",
+            "country": "Spain"
+          }
+        },
+        {
+          "slug": "madrid-norte",
+          "name": "Madrid Norte",
+          "address": {
+            "street": "Paseo de la Castellana 200",
+            "city": "Madrid",
+            "postalCode": "28046",
+            "country": "Spain"
+          }
+        },
+        {
+          "slug": "madrid-sur",
+          "name": "Madrid Sur",
+          "address": {
+            "street": "Avenida de Andalucía 15",
+            "city": "Madrid",
+            "postalCode": "28041",
+            "country": "Spain"
+          }
+        },
+        {
+          "slug": "barcelona-eixample",
+          "name": "Barcelona Eixample",
+          "address": {
+            "street": "Passeig de Gràcia 50",
+            "city": "Barcelona",
+            "postalCode": "08007",
+            "country": "Spain"
+          }
+        },
+        {
+          "slug": "valencia-centro",
+          "name": "Valencia Centro",
+          "address": {
+            "street": "Calle Colón 25",
+            "city": "Valencia",
+            "postalCode": "46004",
+            "country": "Spain"
+          }
+        }
+      ],
+      "users": [
+        {
+          "email": "admin@fitmax.es",
+          "password": "Test1234!",
+          "firstName": "Carlos",
+          "lastName": "López",
+          "roles": ["admin"],
+          "organizationIds": [],
+          "note": "Full access to ALL organizations"
+        },
+        {
+          "email": "empleado.madrid@fitmax.es",
+          "password": "Test1234!",
+          "firstName": "Juan",
+          "lastName": "García",
+          "roles": ["employee"],
+          "organizationIds": ["madrid-centro", "madrid-norte", "madrid-sur"],
+          "primaryOrganizationId": "madrid-centro"
+        },
+        {
+          "email": "empleado.barcelona@fitmax.es",
+          "password": "Test1234!",
+          "firstName": "Anna",
+          "lastName": "Puig",
+          "roles": ["employee"],
+          "organizationIds": ["barcelona-eixample"],
+          "primaryOrganizationId": "barcelona-eixample"
+        },
+        {
+          "email": "trainer@fitmax.es",
+          "password": "Test1234!",
+          "firstName": "Pedro",
+          "lastName": "Martínez",
+          "roles": ["provider"],
+          "organizationIds": ["madrid-centro", "madrid-norte"],
+          "primaryOrganizationId": "madrid-centro"
+        },
+        {
+          "email": "cliente.premium@fitmax.es",
+          "password": "Test1234!",
+          "firstName": "María",
+          "lastName": "Fernández",
+          "roles": ["client"],
+          "organizationIds": [],
+          "note": "Premium client - all locations"
+        },
+        {
+          "email": "cliente@fitmax.es",
+          "password": "Test1234!",
+          "firstName": "Luis",
+          "lastName": "Sánchez",
+          "roles": ["client"],
+          "organizationIds": ["madrid-centro"],
+          "primaryOrganizationId": "madrid-centro"
+        }
+      ]
+    },
+    {
+      "slug": "studio-pilates",
+      "name": "Studio Pilates Madrid",
+      "plan": "professional",
+      "branding": {
+        "primaryColor": "#9C27B0",
+        "appName": "Studio Pilates"
+      },
+      "organizations": [
+        {
+          "slug": "chamberi",
+          "name": "Chamberí",
+          "address": {
+            "street": "Calle Ponzano 45",
+            "city": "Madrid",
+            "postalCode": "28003",
+            "country": "Spain"
+          }
+        },
+        {
+          "slug": "salamanca",
+          "name": "Salamanca",
+          "address": {
+            "street": "Calle Serrano 80",
+            "city": "Madrid",
+            "postalCode": "28006",
+            "country": "Spain"
+          }
+        }
+      ],
+      "users": [
+        {
+          "email": "admin@studiopilates.es",
+          "password": "Test1234!",
+          "firstName": "Laura",
+          "lastName": "Gómez",
+          "roles": ["admin"],
+          "organizationIds": []
+        },
+        {
+          "email": "instructora@studiopilates.es",
+          "password": "Test1234!",
+          "firstName": "Elena",
+          "lastName": "Ruiz",
+          "roles": ["provider"],
+          "organizationIds": ["chamberi"],
+          "primaryOrganizationId": "chamberi"
+        },
+        {
+          "email": "cliente@studiopilates.es",
+          "password": "Test1234!",
+          "firstName": "Carmen",
+          "lastName": "Díaz",
+          "roles": ["client"],
+          "organizationIds": ["chamberi", "salamanca"],
+          "primaryOrganizationId": "chamberi"
+        }
+      ]
+    },
+    {
+      "slug": "crossfit-box",
+      "name": "CrossFit Box Madrid",
+      "plan": "starter",
+      "branding": {
+        "primaryColor": "#F44336",
+        "appName": "CrossFit Box"
+      },
+      "organizations": [
+        {
+          "slug": "main",
+          "name": "Box Principal",
+          "address": {
+            "street": "Calle Industrial 15",
+            "city": "Madrid",
+            "postalCode": "28020",
+            "country": "Spain"
+          }
+        }
+      ],
+      "users": [
+        {
+          "email": "admin@crossfitbox.es",
+          "password": "Test1234!",
+          "firstName": "Miguel",
+          "lastName": "Torres",
+          "roles": ["admin", "provider"],
+          "organizationIds": []
+        },
+        {
+          "email": "coach@crossfitbox.es",
+          "password": "Test1234!",
+          "firstName": "Sara",
+          "lastName": "López",
+          "roles": ["provider"],
+          "organizationIds": ["main"],
+          "primaryOrganizationId": "main"
+        },
+        {
+          "email": "atleta@crossfitbox.es",
+          "password": "Test1234!",
+          "firstName": "Pablo",
+          "lastName": "Martín",
+          "roles": ["client"],
+          "organizationIds": ["main"],
+          "primaryOrganizationId": "main"
+        }
+      ]
+    }
+  ],
+  "defaultPassword": "Test1234!",
+  "urls": {
+    "gimnasio-fitmax": {
+      "dashboard": "http://gimnasio-fitmax.localhost:4200",
+      "webapp": "http://gimnasio-fitmax.app.localhost:4201"
+    },
+    "studio-pilates": {
+      "dashboard": "http://studio-pilates.localhost:4200",
+      "webapp": "http://studio-pilates.app.localhost:4201"
+    },
+    "crossfit-box": {
+      "dashboard": "http://crossfit-box.localhost:4200",
+      "webapp": "http://crossfit-box.app.localhost:4201"
+    }
+  }
+}

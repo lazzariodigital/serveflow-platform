@@ -1,10 +1,11 @@
 import { headers } from 'next/headers';
 import type { TenantMVP } from '@serveflow/core';
-import { resolveTenantFromHost } from '@serveflow/tenants/resolve';
+import { resolveTenantFromHost, extractSlugFromHost } from '@serveflow/tenants/resolve';
 
 export interface TenantResult {
   tenant: TenantMVP | null;
   error: string | null;
+  attemptedSlug: string | null;
 }
 
 /**
@@ -44,8 +45,11 @@ export async function getTenantFromHeaders(): Promise<TenantResult> {
 
   if (!host) {
     console.warn('[getTenantFromHeaders] No host header found');
-    return { tenant: null, error: 'No host header found' };
+    return { tenant: null, error: 'No host header found', attemptedSlug: null };
   }
+
+  // Extract slug for error display
+  const attemptedSlug = extractSlugFromHost(host);
 
   const { tenant, error } = await resolveTenantFromHost(host);
 
@@ -53,7 +57,7 @@ export async function getTenantFromHeaders(): Promise<TenantResult> {
     console.warn(`[getTenantFromHeaders] ${error}`);
   }
 
-  return { tenant: serializeTenant(tenant), error: error || null };
+  return { tenant: serializeTenant(tenant), error: error || null, attemptedSlug };
 }
 
 /**

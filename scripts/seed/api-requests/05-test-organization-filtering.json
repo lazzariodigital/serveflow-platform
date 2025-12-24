@@ -1,0 +1,162 @@
+{
+  "_comment": "Test de filtrado por organizaciones - Verificar que el control de acceso funciona",
+  "_prerequisite": "Ejecutar todos los pasos anteriores y obtener tokens de login",
+
+  "test_scenarios": [
+    {
+      "_scenario": "1. Admin ve todos los usuarios (sin filtro de organización)",
+      "_user": "admin@fitmax.es",
+      "_expected_behavior": "organizationIds: [] en JWT = acceso total",
+      "request": {
+        "url": "http://gimnasio-fitmax.localhost:3000/api/users",
+        "method": "GET",
+        "headers": {
+          "Authorization": "Bearer {{admin_token}}"
+        }
+      },
+      "_expected_response": {
+        "success": true,
+        "data": "Todos los 6 usuarios",
+        "meta": {
+          "total": 6,
+          "hasFullAccess": true
+        }
+      }
+    },
+    {
+      "_scenario": "2. Admin filtra por organización Madrid Centro",
+      "_user": "admin@fitmax.es",
+      "request": {
+        "url": "http://gimnasio-fitmax.localhost:3000/api/users?organizationId={{org_id_madrid_centro}}",
+        "method": "GET",
+        "headers": {
+          "Authorization": "Bearer {{admin_token}}"
+        }
+      },
+      "_expected_response": {
+        "success": true,
+        "data": "Solo usuarios de Madrid Centro",
+        "meta": {
+          "hasFullAccess": true
+        }
+      }
+    },
+    {
+      "_scenario": "3. Empleado Madrid solo ve usuarios de sus organizaciones",
+      "_user": "empleado.madrid@fitmax.es",
+      "_expected_behavior": "organizationIds: [madrid-centro, madrid-norte, madrid-sur] limita resultados",
+      "request": {
+        "url": "http://gimnasio-fitmax.localhost:3000/api/users",
+        "method": "GET",
+        "headers": {
+          "Authorization": "Bearer {{empleado_madrid_token}}"
+        }
+      },
+      "_expected_response": {
+        "success": true,
+        "data": "Solo usuarios de sedes Madrid",
+        "meta": {
+          "hasFullAccess": false
+        }
+      }
+    },
+    {
+      "_scenario": "4. Empleado Barcelona solo ve usuarios de Barcelona",
+      "_user": "empleado.barcelona@fitmax.es",
+      "request": {
+        "url": "http://gimnasio-fitmax.localhost:3000/api/users",
+        "method": "GET",
+        "headers": {
+          "Authorization": "Bearer {{empleado_barcelona_token}}"
+        }
+      },
+      "_expected_response": {
+        "success": true,
+        "data": "Solo usuarios de Barcelona Eixample",
+        "meta": {
+          "hasFullAccess": false
+        }
+      }
+    },
+    {
+      "_scenario": "5. Empleado Madrid NO puede ver usuarios de Barcelona",
+      "_user": "empleado.madrid@fitmax.es",
+      "_expected_behavior": "403 Forbidden si intenta filtrar por org no permitida",
+      "request": {
+        "url": "http://gimnasio-fitmax.localhost:3000/api/users?organizationId={{org_id_barcelona_eixample}}",
+        "method": "GET",
+        "headers": {
+          "Authorization": "Bearer {{empleado_madrid_token}}"
+        }
+      },
+      "_expected_response": {
+        "_option_a": "403 Forbidden - No access to organization",
+        "_option_b": "200 OK con 0 resultados (más permisivo)"
+      }
+    }
+  ],
+
+  "test_organization_endpoints": [
+    {
+      "_scenario": "6. Listar organizaciones accesibles por usuario",
+      "_user": "empleado.madrid@fitmax.es",
+      "request": {
+        "url": "http://gimnasio-fitmax.localhost:3000/api/organizations/accessible",
+        "method": "GET",
+        "headers": {
+          "Authorization": "Bearer {{empleado_madrid_token}}"
+        }
+      },
+      "_expected_response": {
+        "success": true,
+        "data": ["Madrid Centro", "Madrid Norte", "Madrid Sur"],
+        "count": 3,
+        "hasFullAccess": false
+      }
+    },
+    {
+      "_scenario": "7. Admin ve todas las organizaciones",
+      "_user": "admin@fitmax.es",
+      "request": {
+        "url": "http://gimnasio-fitmax.localhost:3000/api/organizations/accessible",
+        "method": "GET",
+        "headers": {
+          "Authorization": "Bearer {{admin_token}}"
+        }
+      },
+      "_expected_response": {
+        "success": true,
+        "data": "Las 5 organizaciones",
+        "count": 5,
+        "hasFullAccess": true
+      }
+    }
+  ],
+
+  "test_get_current_user": [
+    {
+      "_scenario": "8. Obtener perfil del usuario actual",
+      "request": {
+        "url": "http://gimnasio-fitmax.localhost:3000/api/users/me",
+        "method": "GET",
+        "headers": {
+          "Authorization": "Bearer {{any_user_token}}"
+        }
+      },
+      "_expected_response": {
+        "success": true,
+        "data": {
+          "fusionauthUserId": "<uuid>",
+          "email": "...",
+          "organizationIds": ["..."]
+        }
+      }
+    }
+  ],
+
+  "_summary": {
+    "key_principle": "organizationIds: [] en el usuario = acceso a TODAS las organizaciones",
+    "filtering_logic": "getOrganizationFilter() en authorization package",
+    "jwt_claims": "Lambda popula organizationIds, primaryOrganizationId, tenantSlug"
+  }
+}

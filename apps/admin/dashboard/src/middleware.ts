@@ -3,7 +3,9 @@ import type { NextRequest } from 'next/server';
 
 // ════════════════════════════════════════════════════════════════
 // FusionAuth Middleware for Admin Dashboard
+// ════════════════════════════════════════════════════════════════
 // NO tenant resolution - uses fixed FusionAuth Tenant ID
+// ONLY superadmin role can access this dashboard
 // ════════════════════════════════════════════════════════════════
 
 // Public routes - no auth required
@@ -13,10 +15,14 @@ const publicRoutes = [
   '/account/login',
   '/account/logout',
   '/account/callback',
+  '/unauthorized',
 ];
 
 // Auth routes - should redirect to home if already logged in
 const authRoutes = ['/sign-in'];
+
+// Required role for admin dashboard
+const REQUIRED_ROLE = 'superadmin';
 
 function isPublicRoute(pathname: string): boolean {
   return publicRoutes.some(
@@ -109,7 +115,18 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL('/tenants', req.url));
   }
 
-  // 5. Inject context headers for Server Components
+  // ════════════════════════════════════════════════════════════════
+  // 5. AUTHORIZATION: Verify user has superadmin role
+  // ════════════════════════════════════════════════════════════════
+  const userRoles = tokenResult.roles || [];
+  if (!userRoles.includes(REQUIRED_ROLE)) {
+    console.warn(
+      `[Middleware] Access denied: user ${tokenResult.email} does not have ${REQUIRED_ROLE} role. Roles: ${userRoles.join(', ')}`
+    );
+    return NextResponse.redirect(new URL('/unauthorized', req.url));
+  }
+
+  // 6. Inject context headers for Server Components
   const response = NextResponse.next();
 
   if (tokenResult.userId) {
@@ -120,6 +137,9 @@ export async function middleware(req: NextRequest) {
   }
   if (tokenResult.applicationId) {
     response.headers.set('x-fusionauth-application-id', tokenResult.applicationId);
+  }
+  if (tokenResult.roles) {
+    response.headers.set('x-user-roles', JSON.stringify(tokenResult.roles));
   }
 
   return response;

@@ -1,26 +1,80 @@
 import { Model } from 'mongoose';
 import { TENANT_DB_PREFIX } from '@serveflow/config';
 import {
-  createFusionAuthTenantWithApplication,
+  createFusionAuthTenantWithApplications,
   deleteFusionAuthTenantWithApplication,
 } from '@serveflow/auth';
-import type { Tenant } from '../schemas';
+import {
+  DEFAULT_DASHBOARD_ROUTES,
+  DEFAULT_WEBAPP_ROUTES,
+  type DashboardConfig,
+  type WebappConfig,
+} from '@serveflow/core';
+import type { Tenant, RoleTemplate, TenantRole } from '../schemas';
+import { listRoleTemplates } from './role-templates';
+import { initializeTenantRolesFromTemplates, updateTenantRoleFusionAuthId } from './tenant-roles';
 
 // ════════════════════════════════════════════════════════════════
-// Tenant Lookup Type (compatible with existing code)
+// Tenant Lookup Type (matching Mongoose schema)
 // ════════════════════════════════════════════════════════════════
 
 export interface TenantLookup {
   _id: string;
-  fusionauthTenantId: string;
-  fusionauthApplicationId: string;
   slug: string;
-  dbName: string;
   name: string;
-  status: 'active' | 'inactive' | 'suspended';
+  fusionauthTenantId: string;
+  fusionauthApplications: {
+    dashboard: { id: string };
+    webapp: { id: string };
+  };
+  // Hito 1B: App Configuration (Authorization)
+  dashboardConfig: DashboardConfig;
+  webappConfig: WebappConfig;
+  database: { name: string };
+  company?: {
+    legalName: string;
+    taxId: string;
+    address: {
+      street: string;
+      city: string;
+      postalCode: string;
+      country: string;
+      state?: string;
+    };
+  };
+  contact?: {
+    email: string;
+    phone?: string;
+    supportEmail?: string;
+    billingEmail?: string;
+  };
+  settings?: {
+    locale: string;
+    timezone: string;
+    currency: string;
+  };
+  branding?: {
+    logo: { url: string; darkUrl?: string };
+    favicon?: string;
+    appName?: string;
+  };
+  theming?: {
+    mode: string;
+    preset?: string;
+    palette?: {
+      primary?: Record<string, string>;
+      secondary?: Record<string, string>;
+    };
+    typography?: {
+      primaryFont?: string;
+      secondaryFont?: string;
+    };
+    direction?: string;
+  };
+  status: 'active' | 'suspended';
+  plan?: string;
   createdAt: Date;
   updatedAt: Date;
-  metadata?: Record<string, unknown>;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -106,7 +160,7 @@ export async function getTenantById(
 export async function listTenants(
   tenantModel: Model<Tenant>,
   options: {
-    status?: 'active' | 'inactive' | 'suspended';
+    status?: 'active' | 'suspended';
     limit?: number;
     skip?: number;
   } = {}
@@ -133,48 +187,102 @@ export async function listTenants(
 }
 
 /**
- * Creates a new tenant in the system database.
+ * Internal input for creating a tenant (includes FusionAuth IDs).
+ * @internal
+ */
+interface CreateTenantInput {
+  slug: string;
+  name: string;
+  fusionauthTenantId: string;
+  fusionauthApplications: {
+    dashboard: { id: string };
+    webapp: { id: string };
+  };
+  company?: {
+    legalName: string;
+    taxId: string;
+    address: {
+      street: string;
+      city: string;
+      postalCode: string;
+      country: string;
+      state?: string;
+    };
+  };
+  contact?: {
+    email: string;
+    phone?: string;
+  };
+  settings?: {
+    locale?: string;
+    timezone?: string;
+    currency?: string;
+  };
+  branding?: {
+    logo?: { url: string; darkUrl?: string };
+    favicon?: string;
+    appName?: string;
+  };
+  theming?: {
+    mode?: string;
+    preset?: string;
+  };
+  status?: 'active' | 'suspended';
+  plan?: 'free' | 'starter' | 'pro' | 'enterprise';
+}
+
+/**
+ * Creates a new tenant in the system database (internal helper).
  *
  * NOTA: Esta función solo crea el registro en db_serveflow_sys.
  * La base de datos del tenant (db_tenant_{slug}) debe crearse por separado.
  *
- * @param tenantModel - Mongoose Tenant Model
- * @param tenantData - Tenant data
- * @returns Created tenant
- *
- * Usage:
- * ```typescript
- * const tenantModel = await mongooseConnection.getTenantModel();
- * const tenant = await createTenant(tenantModel, {
- *   fusionauthTenantId: 'fa-tenant-uuid-xxx',
- *   fusionauthApplicationId: 'fa-app-uuid-xxx',
- *   slug: 'gimnasio-demo',
- *   name: 'Gimnasio Demo',
- *   status: 'active',
- * });
- * ```
+ * @internal Use createTenantWithFusionAuthAndRoles for public API
  */
-export async function createTenant(
+async function createTenant(
   tenantModel: Model<Tenant>,
-  tenantData: {
-    fusionauthTenantId: string;
-    fusionauthApplicationId: string;
-    slug: string;
-    name: string;
-    status?: 'active' | 'inactive' | 'suspended';
-    plan?: 'free' | 'starter' | 'pro' | 'enterprise';
-    metadata?: Record<string, unknown>;
-  }
+  tenantData: CreateTenantInput
 ): Promise<TenantLookup> {
+  const dbName = `${TENANT_DB_PREFIX}${tenantData.slug.replace(/-/g, '_')}`;
+
+  // Hito 1B: Initialize app configs from default templates
+  const dashboardConfig: DashboardConfig = {
+    routes: DEFAULT_DASHBOARD_ROUTES.map((route) => ({ ...route })),
+    defaultRoute: '/dashboard',
+  };
+
+  const webappConfig: WebappConfig = {
+    routes: DEFAULT_WEBAPP_ROUTES.map((route) => ({ ...route })),
+    defaultRoute: '/',
+  };
+
   const tenantDoc = {
-    fusionauthTenantId: tenantData.fusionauthTenantId,
-    fusionauthApplicationId: tenantData.fusionauthApplicationId,
     slug: tenantData.slug,
     name: tenantData.name,
-    dbName: `${TENANT_DB_PREFIX}${tenantData.slug.replace(/-/g, '_')}`,
+    fusionauthTenantId: tenantData.fusionauthTenantId,
+    fusionauthApplications: tenantData.fusionauthApplications,
+    // Hito 1B: App Configuration (Authorization)
+    dashboardConfig,
+    webappConfig,
+    database: { name: dbName },
+    company: tenantData.company,
+    contact: tenantData.contact,
+    settings: {
+      locale: tenantData.settings?.locale || 'es-ES',
+      timezone: tenantData.settings?.timezone || 'Europe/Madrid',
+      currency: tenantData.settings?.currency || 'EUR',
+    },
+    branding: {
+      logo: tenantData.branding?.logo || { url: 'https://serveflow.app/default-logo.png' },
+      favicon: tenantData.branding?.favicon,
+      appName: tenantData.branding?.appName,
+    },
+    theming: {
+      mode: tenantData.theming?.mode || 'light',
+      preset: tenantData.theming?.preset || 'default',
+    },
     status: tenantData.status || 'active',
     plan: tenantData.plan || 'free',
-    metadata: tenantData.metadata || {},
   };
 
   const tenant = await tenantModel.create(tenantDoc);
@@ -227,30 +335,6 @@ export function getTenantDbName(slug: string): string {
 }
 
 /**
- * Gets tenant information including database name.
- * Helper function that combines getTenantBySlug with database name.
- *
- * @param tenantModel - Mongoose Tenant Model
- * @param slug - Tenant slug
- * @returns Tenant with database name
- */
-export async function getTenantInfo(
-  tenantModel: Model<Tenant>,
-  slug: string
-): Promise<(TenantLookup & { dbName: string }) | null> {
-  const tenant = await getTenantBySlug(tenantModel, slug);
-
-  if (!tenant) {
-    return null;
-  }
-
-  return {
-    ...tenant,
-    dbName: getTenantDbName(slug),
-  };
-}
-
-/**
  * Counts tenants in the system.
  *
  * @param tenantModel - Mongoose Tenant Model
@@ -265,67 +349,157 @@ export async function countTenants(
 }
 
 // ════════════════════════════════════════════════════════════════
-// Integrated Operations (FusionAuth + MongoDB)
+// Create Tenant Input (Public API)
 // ════════════════════════════════════════════════════════════════
 
 /**
- * Creates a new tenant with full FusionAuth integration.
+ * Input for creating a new tenant.
+ * FusionAuth IDs are generated automatically.
+ */
+export interface CreateTenantData {
+  slug: string;
+  name: string;
+  company?: {
+    legalName: string;
+    taxId: string;
+    address: {
+      street: string;
+      city: string;
+      postalCode: string;
+      country: string;
+      state?: string;
+    };
+  };
+  contact?: {
+    email: string;
+    phone?: string;
+  };
+  settings?: {
+    locale?: string;
+    timezone?: string;
+    currency?: string;
+  };
+  branding?: {
+    logo?: { url: string; darkUrl?: string };
+    favicon?: string;
+    appName?: string;
+  };
+  theming?: {
+    mode?: string;
+    preset?: string;
+  };
+  status?: 'active' | 'suspended';
+  plan?: 'free' | 'starter' | 'pro' | 'enterprise';
+}
+
+// ════════════════════════════════════════════════════════════════
+// Extended Result Type (with roles)
+// ════════════════════════════════════════════════════════════════
+
+export interface TenantWithRolesResult extends TenantLookup {
+  roles: TenantRole[];
+}
+
+/**
+ * Creates a new tenant with FusionAuth integration AND initializes roles.
  *
  * This function:
- * 1. Creates a FusionAuth Tenant
- * 2. Creates a FusionAuth Application in that tenant
- * 3. Creates the MongoDB tenant record with FusionAuth IDs
+ * 1. Fetches role templates from db_serveflow_sys.role_templates
+ * 2. Creates a FusionAuth Tenant
+ * 3. Creates 2 FusionAuth Applications with roles from templates
+ * 4. Creates the MongoDB tenant record
+ * 5. Initializes tenant_roles from templates
+ * 6. Updates tenant_roles with FusionAuth role IDs
  *
  * If any step fails, it rolls back the previous steps.
  *
- * @param tenantModel - Mongoose Tenant Model
+ * @param tenantModel - Mongoose Tenant Model (system DB)
+ * @param roleTemplateModel - Mongoose RoleTemplate Model (system DB)
+ * @param getTenantRoleModel - Function to get TenantRole Model for a specific tenant DB
  * @param tenantData - Tenant data (without FusionAuth IDs)
- * @returns Created tenant with FusionAuth IDs
- *
- * Usage:
- * ```typescript
- * const tenantModel = await mongooseConnection.getTenantModel();
- * const tenant = await createTenantWithFusionAuth(tenantModel, {
- *   slug: 'gimnasio-demo',
- *   name: 'Gimnasio Demo',
- * });
- * // Returns tenant with fusionauthTenantId and fusionauthApplicationId populated
- * ```
+ * @returns Created tenant with roles
  */
-export async function createTenantWithFusionAuth(
+export async function createTenantWithFusionAuthAndRoles(
   tenantModel: Model<Tenant>,
-  tenantData: {
-    slug: string;
-    name: string;
-    status?: 'active' | 'inactive' | 'suspended';
-    plan?: 'free' | 'starter' | 'pro' | 'enterprise';
-    metadata?: Record<string, unknown>;
-  }
-): Promise<TenantLookup> {
-  console.log(`[createTenantWithFusionAuth] Creating tenant: ${tenantData.name} (${tenantData.slug})`);
+  roleTemplateModel: Model<RoleTemplate>,
+  getTenantRoleModel: (dbName: string) => Promise<Model<TenantRole>>,
+  tenantData: CreateTenantData
+): Promise<TenantWithRolesResult> {
+  console.log(`[createTenantWithFusionAuthAndRoles] Creating tenant: ${tenantData.name} (${tenantData.slug})`);
 
-  // 1. Create FusionAuth Tenant + Application
-  const { tenant: faTenant, application: faApp } = await createFusionAuthTenantWithApplication(
+  // 1. Get role templates
+  const templates = await listRoleTemplates(roleTemplateModel);
+  console.log(`[createTenantWithFusionAuthAndRoles] Found ${templates.length} role templates`);
+
+  // 2. Split roles by allowedApps for each FusionAuth Application
+  const dashboardRoles = templates
+    .filter((t) => t.defaultAllowedApps.includes('dashboard'))
+    .map((t) => t.slug);
+  const webappRoles = templates
+    .filter((t) => t.defaultAllowedApps.includes('webapp'))
+    .map((t) => t.slug);
+
+  console.log(`[createTenantWithFusionAuthAndRoles] Dashboard roles: ${dashboardRoles.join(', ')}`);
+  console.log(`[createTenantWithFusionAuthAndRoles] WebApp roles: ${webappRoles.join(', ')}`);
+
+  // 3. Create FusionAuth Tenant + 2 Applications with roles from templates
+  const { tenant: faTenant, applications } = await createFusionAuthTenantWithApplications(
     tenantData.name,
-    tenantData.slug
+    tenantData.slug,
+    {
+      dashboard: dashboardRoles,
+      webapp: webappRoles,
+    }
   );
 
   try {
-    // 2. Create MongoDB tenant record
+    // 4. Create MongoDB tenant record
     const tenant = await createTenant(tenantModel, {
       ...tenantData,
       fusionauthTenantId: faTenant.id,
-      fusionauthApplicationId: faApp.id,
+      fusionauthApplications: {
+        dashboard: { id: applications.dashboard.id },
+        webapp: { id: applications.webapp.id },
+      },
     });
 
-    console.log(`[createTenantWithFusionAuth] Tenant created successfully: ${tenant._id}`);
-    console.log(`  - FusionAuth Tenant ID: ${faTenant.id}`);
-    console.log(`  - FusionAuth Application ID: ${faApp.id}`);
+    // 5. Initialize tenant roles from templates
+    const dbName = getTenantDbName(tenantData.slug);
+    const tenantRoleModel = await getTenantRoleModel(dbName);
+    const tenantRoles = await initializeTenantRolesFromTemplates(tenantRoleModel, templates);
 
-    return tenant;
+    // 6. Update tenant roles with FusionAuth role IDs from both applications
+    // Dashboard app roles
+    for (const faRole of applications.dashboard.roles) {
+      const matchingTenantRole = tenantRoles.find((tr) => tr.slug === faRole.name);
+      if (matchingTenantRole) {
+        await updateTenantRoleFusionAuthId(tenantRoleModel, matchingTenantRole.slug, faRole.id, 'dashboard');
+      }
+    }
+    // WebApp app roles
+    for (const faRole of applications.webapp.roles) {
+      const matchingTenantRole = tenantRoles.find((tr) => tr.slug === faRole.name);
+      if (matchingTenantRole) {
+        await updateTenantRoleFusionAuthId(tenantRoleModel, matchingTenantRole.slug, faRole.id, 'webapp');
+      }
+    }
+
+    // Refresh roles with updated FusionAuth IDs
+    const updatedRoles = await tenantRoleModel.find({}).lean();
+
+    console.log(`[createTenantWithFusionAuthAndRoles] Tenant created with ${updatedRoles.length} roles`);
+    console.log(`  - FusionAuth Tenant ID: ${faTenant.id}`);
+    console.log(`  - Dashboard App ID: ${applications.dashboard.id}`);
+    console.log(`  - WebApp App ID: ${applications.webapp.id}`);
+    console.log(`  - Roles: ${updatedRoles.map((r) => r.slug).join(', ')}`);
+
+    return {
+      ...tenant,
+      roles: updatedRoles as TenantRole[],
+    };
   } catch (error) {
-    // Rollback FusionAuth on MongoDB failure
-    console.error('[createTenantWithFusionAuth] MongoDB creation failed, rolling back FusionAuth');
+    // Rollback FusionAuth on failure
+    console.error('[createTenantWithFusionAuthAndRoles] Failed, rolling back FusionAuth');
     await deleteFusionAuthTenantWithApplication(faTenant.id);
     throw error;
   }

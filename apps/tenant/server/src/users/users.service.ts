@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ConflictException, BadRequestException }
 import type { Model } from 'mongoose';
 import {
   createFusionAuthUser,
+  createFusionAuthUserWithApps,
   updateFusionAuthUser,
   deleteFusionAuthUser,
 } from '@serveflow/auth';
@@ -39,15 +40,17 @@ export class UsersService {
    *
    * @param userModel - Mongoose User Model (inyectado por TenantMiddleware)
    * @param fusionauthTenantId - ID del tenant de FusionAuth (inyectado por TenantMiddleware)
-   * @param fusionauthApplicationId - ID de la aplicación FusionAuth
+   * @param fusionauthApplicationId - ID de la aplicación FusionAuth (webapp o dashboard)
    * @param dto - Datos del usuario a crear (validated by Zod)
+   * @param defaultRole - Rol por defecto a asignar (default: 'client')
    * @returns Usuario creado
    */
   async create(
     userModel: Model<User>,
     fusionauthTenantId: string,
     fusionauthApplicationId: string,
-    dto: CreateUserRequest
+    dto: CreateUserRequest,
+    defaultRole: string = 'client'
   ): Promise<User> {
     // 1. Verificar que el email no existe en MongoDB
     const existingUser = await getUserByEmail(userModel, dto.email);
@@ -66,7 +69,7 @@ export class UsersService {
         lastName: dto.lastName,
         tenantId: fusionauthTenantId,
         applicationId: fusionauthApplicationId,
-        roles: ['client'], // Default role - must exist in the Application
+        roles: [defaultRole], // Role must exist in the Application
         sendSetPasswordEmail: !dto.password, // Solo enviar email si no hay password
       });
 
@@ -89,6 +92,77 @@ export class UsersService {
     } catch (error) {
       // Si falla crear en FusionAuth, no creamos en MongoDB
       console.error('[UsersService] Error creating user:', error);
+
+      throw new BadRequestException(
+        `Failed to create user: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  /**
+   * Crea un usuario con múltiples registrations en FusionAuth.
+   * Según 03-PERMISOS.md sección 5.1:
+   * - user.data.roles: Todos los roles del usuario
+   * - user.data.organizationIds: Todas las organizaciones
+   * - registrations[]: Una por app con subset de roles permitidos
+   *
+   * @param userModel - Mongoose User Model
+   * @param fusionauthTenantId - ID del tenant de FusionAuth
+   * @param tenantSlug - Slug del tenant
+   * @param applications - Array de { id, roles } para cada app
+   * @param dto - Datos del usuario (validated by Zod)
+   * @returns Usuario creado
+   */
+  async createWithMultipleApps(
+    userModel: Model<User>,
+    fusionauthTenantId: string,
+    tenantSlug: string,
+    applications: { id: string; roles: string[] }[],
+    dto: CreateUserRequest
+  ): Promise<User> {
+    // 1. Verificar que el email no existe en MongoDB
+    const existingUser = await getUserByEmail(userModel, dto.email);
+    if (existingUser) {
+      throw new ConflictException('User with this email already exists');
+    }
+
+    try {
+      // 2. Crear usuario en FusionAuth con múltiples registrations
+      const fusionauthUser = await createFusionAuthUserWithApps({
+        email: dto.email,
+        password: dto.password,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        tenantId: fusionauthTenantId,
+        tenantSlug,
+        roles: dto.roles,
+        organizationIds: dto.organizationIds,
+        primaryOrganizationId: dto.primaryOrganizationId,
+        registrations: applications.map((app) => ({
+          applicationId: app.id,
+          roles: app.roles,
+        })),
+        sendSetPasswordEmail: !dto.password,
+      });
+
+      // 3. Crear usuario en MongoDB
+      const user = await createUserInDb(userModel, {
+        fusionauthUserId: fusionauthUser.id,
+        email: dto.email,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        phoneNumber: dto.phoneNumber,
+        imageUrl: dto.imageUrl || fusionauthUser.imageUrl,
+        status: 'active',
+        isVerified: fusionauthUser.verified || false,
+        organizationIds: dto.organizationIds || [],
+      });
+
+      console.log(`[UsersService] User ${fusionauthUser.id} created with ${applications.length} app registrations`);
+
+      return user;
+    } catch (error) {
+      console.error('[UsersService] Error creating user with multiple apps:', error);
 
       throw new BadRequestException(
         `Failed to create user: ${error instanceof Error ? error.message : 'Unknown error'}`

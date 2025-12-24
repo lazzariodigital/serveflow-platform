@@ -200,23 +200,43 @@ interface FusionAuthTenant {
 // ═══════════════════════════════════════════════════════════════════════════
 // FUSIONAUTH APPLICATION (N por Tenant: Dashboard, WebApp, API)
 // ═══════════════════════════════════════════════════════════════════════════
+//
+// TIPOS DE APLICACIONES:
+// ┌──────────────────────────────────────────────────────────────────────────┐
+// │ APPS DE USUARIO (usan Authorization Code + allowedApps de roles)         │
+// │   • Dashboard: admin, employee, provider (si configurado)                │
+// │   • WebApp: provider, client                                             │
+// │   → Roles: admin, employee, provider, client + custom                    │
+// │   → Grant: Authorization Code + PKCE                                     │
+// ├──────────────────────────────────────────────────────────────────────────┤
+// │ APP M2M (usa Client Credentials, NO usa allowedApps)                     │
+// │   • API: integraciones externas, webhooks, sistemas                      │
+// │   → Roles propios: api_full, api_readonly                                │
+// │   → Grant: Client Credentials                                            │
+// │   → Ver sección 6.7 para flujo detallado                                 │
+// └──────────────────────────────────────────────────────────────────────────┘
+//
 interface FusionAuthApplication {
   id: string;
   name: string;                  // "Dashboard", "WebApp", "API"
 
-  // Roles disponibles EN ESTA APP (configurados desde tenant_roles)
+  // Roles disponibles EN ESTA APP
+  // Para Dashboard/WebApp: roles de tenant_roles con allowedApps que incluya esta app
+  // Para API: roles M2M específicos (api_full, api_readonly)
   roles: Array<{
-    name: string;                // "admin", "employee", "receptionist"
+    name: string;                // "admin", "employee" o "api_full"
     description?: string;
-    isDefault: boolean;          // Para self-registration
+    isDefault: boolean;          // Para self-registration (solo Dashboard/WebApp)
     isSuperRole: boolean;        // Admin tiene todos los permisos
   }>;
 
   oauthConfiguration: {
     clientId: string;
     clientSecret: string;
-    authorizedRedirectURLs: string[];
-    requireRegistration: boolean;  // true = sin Registration no puede login
+    authorizedRedirectURLs: string[];  // Solo para Dashboard/WebApp
+    requireRegistration: boolean;       // true = sin Registration no puede login
+    // Para API M2M:
+    // enabledGrants: ['client_credentials']
   };
 }
 
@@ -285,6 +305,7 @@ interface RoleTemplate {
 
   // En qué apps puede usarse este rol POR DEFECTO
   // Cada tenant puede cambiar esto
+  // NOTA: Solo apps de usuario (dashboard, webapp). API es M2M con roles propios.
   defaultAllowedApps: ('dashboard' | 'webapp')[];
 
   // Configuración base
@@ -391,7 +412,10 @@ interface TenantRole {
   // ═══════════════════════════════════════════════════════════════════
   // CONFIGURACIÓN ESPECÍFICA DE ESTE TENANT
   // ═══════════════════════════════════════════════════════════════════
-  allowedApps: ('dashboard' | 'webapp')[];  // En qué apps puede usarse
+  // NOTA: Solo 'dashboard' y 'webapp' porque son apps de USUARIOS HUMANOS.
+  // La app 'API' es M2M (machine-to-machine) y usa client_credentials grant
+  // con roles propios (api_full, api_readonly), no roles de usuario.
+  allowedApps: ('dashboard' | 'webapp')[];  // Apps de usuario que puede acceder
 
   // Flags
   isSuperRole: boolean;
@@ -1772,7 +1796,7 @@ interface FusionAuthJwtPayload {
 │                                                                              │
 │   Sistema automáticamente:                                                  │
 │   • Crea FusionAuth Tenant "gimnasio-fitmax"                                │
-│   • Crea FusionAuth Apps: Dashboard, WebApp, API                            │
+│   • Crea 2 FusionAuth Apps: Dashboard + WebApp (API es M2M, ver 6.7)        │
 │   • Crea base de datos: db_tenant_gimnasio-fitmax                           │
 │   • Inicializa role_templates → tenant_roles                                │
 │   • Genera base policies en Cerbos                                          │
@@ -2367,118 +2391,291 @@ export function OrganizationSwitcher() {
 > **Principio de diseño:** El frontend usa una abstracción que hoy lee defaults y mañana lee config del tenant.
 > Cambiar de "hardcoded" a "dinámico" solo requiere modificar la fuente de datos, no los componentes.
 
-#### 9.4.1 Modelo de Datos: Configuración de Rutas por Tenant
+#### 9.4.1 Modelo de Datos: Configuración de Rutas por App
 
 ```typescript
 // ═══════════════════════════════════════════════════════════════════════════
-// MODELO: Configuración de Dashboard por Tenant
-// Collection: db_tenant_{slug}.dashboard_config (documento único)
+// MODELO UNIFICADO: AppRoute
+// Usado tanto para Dashboard como para WebApp
+// Diseñado para ser EXTENSIBLE: campos opcionales se implementan en Bloque 4
 // ═══════════════════════════════════════════════════════════════════════════
 
-interface DashboardConfig {
+type AppType = 'dashboard' | 'webapp';
+
+// Tipos de vista disponibles (extensible en Bloque 4)
+type ViewType =
+  | 'list' | 'calendar' | 'kanban' | 'crm' | 'grid' | 'form' | 'timeline'  // Dashboard
+  | 'cards' | 'profile' | 'detail';  // WebApp
+
+// Filtros especiales que se resuelven en runtime
+type SpecialFilter = 'ME' | 'MY_ORGS';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AppRoute: Modelo base EXTENSIBLE
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface AppRoute {
+  // ─────────────────────────────────────────────────────────────────────────
+  // FASE 1 (Hito 3): Campos obligatorios - Autorización básica
+  // ─────────────────────────────────────────────────────────────────────────
+  id: string;                  // Identificador único: "events", "clients"
+  path: string;                // Ruta: "/events", "/clients"
+  label: string;               // Label en navegación: "Eventos", "Clientes"
+  icon?: string;               // Icono: "calendar", "users"
+  allowedRoles: string[];      // Roles que pueden ver esta ruta: ["admin", "employee"]
+                               // Usar ["*"] para rutas públicas (solo webapp)
+  isEnabled: boolean;          // Para ocultar rutas sin eliminarlas
+  order: number;               // Orden en navegación
+
+  // Sub-rutas (opcional)
+  children?: AppRoute[];
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // FASE 2 (Bloque 4): Campos opcionales - Sistema de Vistas
+  // Estos campos se definen ahora pero se IMPLEMENTAN en Bloque 4
+  // Ver docs/v2/04-NEGOCIO.md para especificación completa
+  // ─────────────────────────────────────────────────────────────────────────
+  resource?: string;                         // Recurso asociado: "events", "users", "bookings"
+  availableViews?: ViewType[];               // Vistas disponibles: ["calendar", "list"]
+  defaultView?: ViewType;                    // Vista por defecto: "calendar"
+  defaultFilters?: Record<string, unknown>;  // Filtros predefinidos: { serviceType: "class" }
+                                             // Soporta SpecialFilter: { userId: "ME" }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AppConfig: Configuración por App
+// Collection: db_tenant_{slug}.app_config
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface AppConfig {
   _id: ObjectId;
+  app: AppType;                // 'dashboard' | 'webapp'
+  routes: AppRoute[];
 
-  // Rutas del dashboard y quién puede verlas
-  routes: DashboardRoute[];
+  // Solo para webapp
+  publicRoutes?: string[];     // Rutas sin autenticación: ["/", "/services"]
 
-  // Configuración por rol de qué ve en el home
-  homeWidgets: Record<string, string[]>;  // { admin: ['stats', 'recent'], employee: ['tasks'] }
+  // Configuración adicional
+  homeWidgets?: Record<string, string[]>;  // Widgets por rol en home
+  theme?: ThemeConfig;                      // Override de tema por app
 
   updatedAt: Date;
 }
 
-interface DashboardRoute {
-  path: string;              // "/users", "/events", "/bookings"
-  label: string;             // "Usuarios", "Eventos"
-  icon: string;              // "users", "calendar", "book"
-  allowedRoles: string[];    // ["admin", "employee"]
-  isEnabled: boolean;        // Para ocultar rutas sin eliminarlas
-  order: number;             // Orden en navegación
-
-  // Sub-rutas (opcional)
-  children?: DashboardRoute[];
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
-// DEFAULTS: Cuando el tenant no tiene config personalizada
+// DEFAULTS: Dashboard
 // ═══════════════════════════════════════════════════════════════════════════
 
-const DEFAULT_DASHBOARD_ROUTES: DashboardRoute[] = [
+const DEFAULT_DASHBOARD_ROUTES: AppRoute[] = [
   {
-    path: '/dashboard',
+    id: 'home',
+    path: '/',
     label: 'Dashboard',
     icon: 'home',
     allowedRoles: ['admin', 'employee', 'provider'],
     isEnabled: true,
     order: 0,
+    // Bloque 4: resource: 'dashboard', defaultView: 'widgets'
   },
   {
+    id: 'bookings',
     path: '/bookings',
     label: 'Reservas',
     icon: 'calendar',
     allowedRoles: ['admin', 'employee', 'provider'],
     isEnabled: true,
     order: 1,
+    resource: 'bookings',  // Preparado para Bloque 4
+    // Bloque 4: availableViews: ['list', 'calendar'], defaultView: 'list'
   },
   {
+    id: 'events',
     path: '/events',
     label: 'Eventos',
     icon: 'calendar-days',
     allowedRoles: ['admin', 'employee'],
     isEnabled: true,
     order: 2,
+    resource: 'events',
+    // Bloque 4: availableViews: ['calendar', 'list'], defaultView: 'calendar'
   },
   {
+    id: 'services',
     path: '/services',
     label: 'Servicios',
     icon: 'list',
     allowedRoles: ['admin', 'employee'],
     isEnabled: true,
     order: 3,
+    resource: 'services',
   },
   {
+    id: 'users',
     path: '/users',
     label: 'Usuarios',
     icon: 'users',
     allowedRoles: ['admin'],
     isEnabled: true,
     order: 4,
+    resource: 'users',
+    // Bloque 4: availableViews: ['list', 'crm'], defaultView: 'list'
   },
   {
+    id: 'organizations',
+    path: '/organizations',
+    label: 'Sedes',
+    icon: 'building',
+    allowedRoles: ['admin'],
+    isEnabled: true,
+    order: 5,
+    resource: 'organizations',
+  },
+  {
+    id: 'settings',
     path: '/settings',
     label: 'Configuración',
     icon: 'settings',
     allowedRoles: ['admin'],
     isEnabled: true,
-    order: 5,
+    order: 6,
+    resource: 'settings',
   },
 ];
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DEFAULTS: WebApp
+// ═══════════════════════════════════════════════════════════════════════════
+
+const DEFAULT_WEBAPP_ROUTES: AppRoute[] = [
+  {
+    id: 'home',
+    path: '/',
+    label: 'Inicio',
+    icon: 'home',
+    allowedRoles: ['*'],  // Público
+    isEnabled: true,
+    order: 0,
+  },
+  {
+    id: 'services',
+    path: '/services',
+    label: 'Servicios',
+    icon: 'grid',
+    allowedRoles: ['*'],  // Público
+    isEnabled: true,
+    order: 1,
+    resource: 'services',
+    // Bloque 4: availableViews: ['cards', 'list'], defaultView: 'cards'
+  },
+  {
+    id: 'my-bookings',
+    path: '/my-bookings',
+    label: 'Mis Reservas',
+    icon: 'calendar',
+    allowedRoles: ['client', 'provider'],
+    isEnabled: true,
+    order: 2,
+    resource: 'bookings',
+    defaultFilters: { userId: 'ME' },  // Filtro especial: solo mis reservas
+    // Bloque 4: availableViews: ['list', 'calendar'], defaultView: 'list'
+  },
+  {
+    id: 'my-classes',
+    path: '/my-classes',
+    label: 'Mis Clases',
+    icon: 'dumbbell',
+    allowedRoles: ['provider'],
+    isEnabled: true,
+    order: 3,
+    resource: 'events',
+    defaultFilters: { instructorId: 'ME' },  // Solo clases donde soy instructor
+    // Bloque 4: availableViews: ['calendar', 'list'], defaultView: 'calendar'
+  },
+  {
+    id: 'profile',
+    path: '/profile',
+    label: 'Mi Perfil',
+    icon: 'user',
+    allowedRoles: ['client', 'provider'],
+    isEnabled: true,
+    order: 4,
+    resource: 'users',
+    defaultFilters: { userId: 'ME' },
+    // Bloque 4: availableViews: ['profile'], defaultView: 'profile'
+  },
+];
+
+// Rutas públicas de WebApp (no requieren autenticación)
+const DEFAULT_WEBAPP_PUBLIC_ROUTES = ['/', '/services', '/services/[slug]'];
+```
+
+#### 9.4.1.1 Diferencias Dashboard vs WebApp
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      DASHBOARD vs WEBAPP                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   TENANT DASHBOARD                        TENANT WEBAPP                      │
+│   ════════════════                        ═════════════                      │
+│   Usuarios: admin, employee, provider*    Usuarios: client, provider         │
+│                                                                              │
+│   Propósito:                              Propósito:                         │
+│   • Gestión del negocio                   • Consumo de servicios             │
+│   • Muchas vistas configurables           • UX simple y directa              │
+│   • Alta personalización                  • Menos personalización            │
+│                                                                              │
+│   Views típicas:                          Views típicas:                     │
+│   • list, calendar, kanban, crm           • cards, list, profile             │
+│                                                                              │
+│   Rutas públicas: NO                      Rutas públicas: SÍ                 │
+│   (todo requiere auth)                    (/, /services)                     │
+│                                                                              │
+│   ─────────────────────────────────────────────────────────────────────     │
+│                                                                              │
+│   MISMO MODELO AppRoute, DIFERENTES INSTANCIAS                              │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 #### 9.4.2 Hook: useAuthorization
 
 ```tsx
 // ═══════════════════════════════════════════════════════════════════════════
-// packages/ui/src/hooks/use-authorization.ts
+// packages/authorization/src/hooks/use-authorization.ts
+// Hook UNIFICADO para Dashboard y WebApp
 // ═══════════════════════════════════════════════════════════════════════════
 
+interface UseAuthorizationOptions {
+  app: AppType;  // 'dashboard' | 'webapp'
+}
+
 interface AuthorizationContext {
+  // App actual
+  app: AppType;
+
   // Datos del usuario (del JWT)
   userRoles: string[];
   organizationIds: string[];
+  isAuthenticated: boolean;
 
   // Configuración de rutas (del tenant o defaults)
-  routes: DashboardRoute[];
+  routes: AppRoute[];
+  publicRoutes: string[];  // Solo relevante para webapp
 
-  // Helpers
+  // Helpers de roles
   hasRole: (role: string) => boolean;
   hasAnyRole: (roles: string[]) => boolean;
+
+  // Helpers de rutas
   canAccessRoute: (path: string) => boolean;
-  getAccessibleRoutes: () => DashboardRoute[];
+  getAccessibleRoutes: () => AppRoute[];
+  isPublicRoute: (path: string) => boolean;
 }
 
-export function useAuthorization(): AuthorizationContext {
-  const { user } = useCurrentUser();
+export function useAuthorization(options: UseAuthorizationOptions): AuthorizationContext {
+  const { app } = options;
+  const { user, isAuthenticated } = useCurrentUser();
   const { tenant } = useTenant();
 
   // Roles del usuario (del JWT decodificado)
@@ -2486,20 +2683,34 @@ export function useAuthorization(): AuthorizationContext {
   const organizationIds = useMemo(() => user?.organizationIds || [], [user]);
 
   // ═══════════════════════════════════════════════════════════════════════
-  // RUTAS: Fase 1 usa defaults, Fase 2 usará tenant.dashboardConfig
+  // RUTAS: Selecciona defaults según app, o usa config del tenant
   // ═══════════════════════════════════════════════════════════════════════
-  const routes = useMemo(() => {
-    // Fase 2: cuando tengamos dashboard_config en MongoDB
-    // if (tenant?.dashboardConfig?.routes) {
-    //   return tenant.dashboardConfig.routes;
+  const { routes, publicRoutes } = useMemo(() => {
+    // Fase 2: cuando tengamos app_config en MongoDB
+    // const tenantConfig = tenant?.appConfigs?.find(c => c.app === app);
+    // if (tenantConfig) {
+    //   return {
+    //     routes: tenantConfig.routes,
+    //     publicRoutes: tenantConfig.publicRoutes || [],
+    //   };
     // }
 
-    // Fase 1: usar defaults
-    return DEFAULT_DASHBOARD_ROUTES;
-  }, [tenant]);
+    // Fase 1: usar defaults según app
+    if (app === 'dashboard') {
+      return {
+        routes: DEFAULT_DASHBOARD_ROUTES,
+        publicRoutes: [],  // Dashboard no tiene rutas públicas
+      };
+    }
+
+    return {
+      routes: DEFAULT_WEBAPP_ROUTES,
+      publicRoutes: DEFAULT_WEBAPP_PUBLIC_ROUTES,
+    };
+  }, [app, tenant]);
 
   // ═══════════════════════════════════════════════════════════════════════
-  // HELPERS
+  // HELPERS: Roles
   // ═══════════════════════════════════════════════════════════════════════
 
   const hasRole = useCallback(
@@ -2508,12 +2719,38 @@ export function useAuthorization(): AuthorizationContext {
   );
 
   const hasAnyRole = useCallback(
-    (roles: string[]) => roles.some(r => userRoles.includes(r)),
+    (roles: string[]) => {
+      // '*' significa público / todos
+      if (roles.includes('*')) return true;
+      return roles.some(r => userRoles.includes(r));
+    },
     [userRoles]
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // HELPERS: Rutas
+  // ═══════════════════════════════════════════════════════════════════════
+
+  const isPublicRoute = useCallback(
+    (path: string) => {
+      return publicRoutes.some(pr => {
+        // Soporta patterns simples como /services/[slug]
+        const pattern = pr.replace(/\[.*?\]/g, '[^/]+');
+        const regex = new RegExp(`^${pattern}$`);
+        return regex.test(path);
+      });
+    },
+    [publicRoutes]
   );
 
   const canAccessRoute = useCallback(
     (path: string) => {
+      // Ruta pública = acceso libre
+      if (isPublicRoute(path)) return true;
+
+      // No autenticado y no es ruta pública = no puede
+      if (!isAuthenticated) return false;
+
       const route = routes.find(r =>
         path === r.path || path.startsWith(r.path + '/')
       );
@@ -2527,25 +2764,47 @@ export function useAuthorization(): AuthorizationContext {
       // Verificar roles
       return hasAnyRole(route.allowedRoles);
     },
-    [routes, hasAnyRole]
+    [routes, hasAnyRole, isPublicRoute, isAuthenticated]
   );
 
   const getAccessibleRoutes = useCallback(
     () => routes
-      .filter(r => r.isEnabled && hasAnyRole(r.allowedRoles))
+      .filter(r => {
+        if (!r.isEnabled) return false;
+        // Rutas públicas siempre visibles
+        if (r.allowedRoles.includes('*')) return true;
+        // Rutas privadas solo si tiene rol
+        return isAuthenticated && hasAnyRole(r.allowedRoles);
+      })
       .sort((a, b) => a.order - b.order),
-    [routes, hasAnyRole]
+    [routes, hasAnyRole, isAuthenticated]
   );
 
   return {
+    app,
     userRoles,
     organizationIds,
+    isAuthenticated,
     routes,
+    publicRoutes,
     hasRole,
     hasAnyRole,
     canAccessRoute,
     getAccessibleRoutes,
+    isPublicRoute,
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Hooks especializados para cada app (sugar syntax)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export function useDashboardAuthorization() {
+  return useAuthorization({ app: 'dashboard' });
+}
+
+export function useWebAppAuthorization() {
+  return useAuthorization({ app: 'webapp' });
 }
 ```
 
@@ -2931,6 +3190,261 @@ function derivePermissionFromRoles(
 
 ---
 
+### 9.5 Definición Centralizada de Recursos
+
+Los recursos del sistema deben estar definidos en un único lugar para garantizar consistencia entre:
+- **Cerbos**: Policies (resource type)
+- **Frontend**: ResourceType enum, vistas, navegación
+- **Backend**: Validación, controladores
+- **MongoDB**: Collections
+
+#### 9.5.1 Catálogo de Recursos del Sistema
+
+```typescript
+// packages/core/src/resources/index.ts
+
+/**
+ * CATÁLOGO CENTRALIZADO DE RECURSOS
+ *
+ * Cada recurso define:
+ * - id: Identificador único (singular, snake_case) - USADO EN CERBOS
+ * - label: Nombre para mostrar en UI
+ * - pluralId: Para colecciones MongoDB y URLs
+ * - icon: Icono de Lucide React
+ * - apps: En qué apps está disponible
+ * - defaultActions: Acciones CRUD estándar
+ */
+
+export const SYSTEM_RESOURCES = {
+  // ════════════════════════════════════════════════════════════════
+  // RECURSOS DE NEGOCIO
+  // ════════════════════════════════════════════════════════════════
+
+  event: {
+    id: 'event',
+    label: 'Evento',
+    labelPlural: 'Eventos',
+    pluralId: 'events',
+    icon: 'Calendar',
+    apps: ['dashboard', 'webapp'],
+    defaultActions: ['view', 'create', 'update', 'delete', 'publish'],
+    description: 'Clases, talleres, sesiones programables',
+  },
+
+  service: {
+    id: 'service',
+    label: 'Servicio',
+    labelPlural: 'Servicios',
+    pluralId: 'services',
+    icon: 'Briefcase',
+    apps: ['dashboard', 'webapp'],
+    defaultActions: ['view', 'create', 'update', 'delete'],
+    description: 'Servicios ofrecidos por el negocio',
+  },
+
+  resource: {
+    id: 'resource',
+    label: 'Recurso',
+    labelPlural: 'Recursos',
+    pluralId: 'resources',
+    icon: 'Box',
+    apps: ['dashboard'],
+    defaultActions: ['view', 'create', 'update', 'delete'],
+    description: 'Salas, equipos, espacios reservables',
+  },
+
+  // ════════════════════════════════════════════════════════════════
+  // RECURSOS DE USUARIOS
+  // ════════════════════════════════════════════════════════════════
+
+  user: {
+    id: 'user',
+    label: 'Usuario',
+    labelPlural: 'Usuarios',
+    pluralId: 'users',
+    icon: 'Users',
+    apps: ['dashboard'],
+    defaultActions: ['view', 'create', 'update', 'delete', 'invite', 'suspend'],
+    description: 'Usuarios del tenant',
+  },
+
+  // ════════════════════════════════════════════════════════════════
+  // RECURSOS ORGANIZACIONALES
+  // ════════════════════════════════════════════════════════════════
+
+  organization: {
+    id: 'organization',
+    label: 'Organización',
+    labelPlural: 'Organizaciones',
+    pluralId: 'organizations',
+    icon: 'Building2',
+    apps: ['dashboard'],
+    defaultActions: ['view', 'create', 'update', 'delete', 'deactivate'],
+    description: 'Sedes, sucursales del tenant',
+  },
+
+  role: {
+    id: 'role',
+    label: 'Rol',
+    labelPlural: 'Roles',
+    pluralId: 'roles',
+    icon: 'Shield',
+    apps: ['dashboard'],
+    defaultActions: ['view', 'create', 'update', 'delete'],
+    description: 'Roles y permisos del tenant',
+  },
+
+  // ════════════════════════════════════════════════════════════════
+  // RECURSOS DE SISTEMA
+  // ════════════════════════════════════════════════════════════════
+
+  settings: {
+    id: 'settings',
+    label: 'Configuración',
+    labelPlural: 'Configuraciones',
+    pluralId: 'settings',
+    icon: 'Settings',
+    apps: ['dashboard'],
+    defaultActions: ['view', 'update'],
+    description: 'Configuración del tenant',
+  },
+} as const;
+
+// ════════════════════════════════════════════════════════════════
+// TIPOS DERIVADOS
+// ════════════════════════════════════════════════════════════════
+
+/** IDs de recursos (para Cerbos) - singular */
+export type ResourceId = keyof typeof SYSTEM_RESOURCES;
+
+/** IDs plurales (para URLs y collections) */
+export type ResourcePluralId = typeof SYSTEM_RESOURCES[ResourceId]['pluralId'];
+
+/** Apps disponibles */
+export type AppId = 'dashboard' | 'webapp';
+
+/** Acciones base para todos los recursos */
+export type BaseAction = 'view' | 'create' | 'update' | 'delete';
+
+/** Todas las acciones posibles */
+export type ResourceAction = BaseAction | 'publish' | 'invite' | 'suspend' | 'deactivate';
+
+// ════════════════════════════════════════════════════════════════
+// HELPERS
+// ════════════════════════════════════════════════════════════════
+
+/** Obtiene recursos disponibles para una app */
+export function getResourcesForApp(app: AppId): ResourceId[] {
+  return Object.entries(SYSTEM_RESOURCES)
+    .filter(([_, config]) => config.apps.includes(app))
+    .map(([id]) => id as ResourceId);
+}
+
+/** Obtiene ID plural desde ID singular */
+export function getPluralId(resourceId: ResourceId): string {
+  return SYSTEM_RESOURCES[resourceId].pluralId;
+}
+
+/** Obtiene ID singular desde plural */
+export function getSingularId(pluralId: string): ResourceId | undefined {
+  const entry = Object.entries(SYSTEM_RESOURCES)
+    .find(([_, config]) => config.pluralId === pluralId);
+  return entry?.[0] as ResourceId | undefined;
+}
+
+/** Valida que un string sea un ResourceId válido */
+export function isValidResourceId(id: string): id is ResourceId {
+  return id in SYSTEM_RESOURCES;
+}
+```
+
+#### 9.5.2 Uso en Cerbos Policies
+
+```yaml
+# cerbos/policies/event.yaml
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: "default"
+  resource: "event"  # ← Usa ResourceId (singular)
+
+  rules:
+    - actions: ["view", "create", "update", "delete", "publish"]
+      effect: EFFECT_ALLOW
+      roles: ["admin"]
+
+    - actions: ["view", "create", "update"]
+      effect: EFFECT_ALLOW
+      roles: ["employee"]
+      condition:
+        match:
+          expr: "request.resource.attr.organizationId in request.principal.attr.organizationIds || size(request.principal.attr.organizationIds) == 0"
+```
+
+#### 9.5.3 Uso en Frontend
+
+```typescript
+// Ejemplo: Obtener label para breadcrumb
+import { SYSTEM_RESOURCES, type ResourceId } from '@serveflow/core';
+
+function ResourceBreadcrumb({ resourceId }: { resourceId: ResourceId }) {
+  const resource = SYSTEM_RESOURCES[resourceId];
+  return (
+    <Breadcrumb>
+      <BreadcrumbItem icon={resource.icon}>
+        {resource.labelPlural}
+      </BreadcrumbItem>
+    </Breadcrumb>
+  );
+}
+
+// Ejemplo: Verificar permiso con Cerbos
+import { usePermission } from '@serveflow/authorization';
+
+function EventActions({ event }: { event: Event }) {
+  const canDelete = usePermission('event', 'delete', {
+    organizationId: event.organizationId
+  });
+
+  return canDelete ? <DeleteButton /> : null;
+}
+```
+
+#### 9.5.4 Mapeo MongoDB Collections
+
+| ResourceId | Collection | Database |
+|------------|------------|----------|
+| `event` | `events` | db_tenant_{slug} |
+| `service` | `services` | db_tenant_{slug} |
+| `resource` | `resources` | db_tenant_{slug} |
+| `user` | `users` | db_tenant_{slug} |
+| `organization` | `organizations` | db_tenant_{slug} |
+| `role` | `tenant_roles` | db_tenant_{slug} |
+| `settings` | `settings` | db_tenant_{slug} |
+
+> **Nota**: Los providers no son un recurso separado - son `users` con `roles.includes('provider')`. Se filtran mediante `defaultFilters` en las vistas.
+
+#### 9.5.5 Extensibilidad por Tenant
+
+Los tenants pueden añadir recursos custom en el futuro:
+
+```typescript
+// Fase futura: recursos custom por tenant
+interface CustomResource {
+  id: string;           // "membership"
+  label: string;        // "Membresía"
+  labelPlural: string;  // "Membresías"
+  pluralId: string;     // "memberships"
+  icon: string;         // "CreditCard"
+  actions: string[];    // ["view", "create", "renew", "cancel"]
+  schema?: object;      // JSON Schema para validación
+}
+
+// Se almacenaría en db_tenant_{slug}.custom_resources
+// Las policies de Cerbos se generarían dinámicamente
+```
+
+---
+
 ## 10. Decisiones y Trade-offs
 
 ### Decisiones Tomadas
@@ -2959,348 +3473,1202 @@ function derivePermissionFromRoles(
 
 ## Próximos Pasos: Hitos de Implementación
 
-La implementación se divide en **3 hitos probables**, cada uno con un prompt detallado para Claude/Cursor.
+La implementación se divide en **4 hitos**, siguiendo los conceptos base del sistema:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         CAPAS DE AUTORIZACIÓN                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   HITO 3: PERMISO ──────────────────────────────────────────────────────    │
+│   Qué puede HACER: create:booking, cancel:booking                           │
+│   Cerbos, conditions, scoped policies                                       │
+│                                                                              │
+│   HITO 2: SCOPE ────────────────────────────────────────────────────────    │
+│   En qué ÁMBITO: todo el tenant, solo ciertas sedes                         │
+│   Organizations, organizationIds, filtrado                                  │
+│                                                                              │
+│   HITO 1B: ACCESO ──────────────────────────────────────────────────────    │
+│   A qué APPS entra: Dashboard, WebApp                                       │
+│   Middleware, UI condicional, <Can />, @Roles                               │
+│                                                                              │
+│   HITO 1A: ROL (Templates) ─────────────────────────────────────────────    │
+│   Qué ES el usuario: admin, employee, provider, client                      │
+│   role_templates, tenant_roles, FusionAuth sync                             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    ▲
+                                    │
+                               BASE (Auth)
+                          FusionAuth implementado
+```
+
+## Apps Cubiertas
+
+| App | Tipo | Roles |
+|-----|------|-------|
+| `apps/admin/dashboard` | Next.js | superadmin |
+| `apps/admin/server` | NestJS | superadmin |
+| `apps/tenant/dashboard` | Next.js | admin, employee, provider* |
+| `apps/tenant/webapp` | Next.js | client, provider |
+| `apps/tenant/server` | NestJS | Todos (valida por rol/permiso) |
+
+*provider en dashboard es configurable por tenant via allowedApps
 
 ---
 
-## HITO 1: Autorización Frontend + Backend Básica
+## HITO 1A: ROL (Role Templates)
 
-**Objetivo:** Control de acceso por roles en frontend y backend.
+**Concepto:** Qué ES el usuario - Sistema de plantillas de roles
+
+**Objetivo:** Implementar el sistema de Role Templates que define qué roles existen y qué apps puede acceder cada rol.
 
 **Criterios de Éxito (Testeable):**
-- [ ] Employee ve navbar: Dashboard, Reservas, Eventos, Servicios
-- [ ] Employee NO ve: Usuarios, Configuración
-- [ ] Employee accede a /users por URL → Redirect a /unauthorized
-- [ ] Employee hace DELETE /api/users/123 → 403 Forbidden
-- [ ] Admin ve todas las rutas y puede acceder a todas
+- [ ] Al crear un nuevo tenant, se copian los 4 role_templates a tenant_roles
+- [ ] Admin del tenant puede crear rol personalizado "receptionist"
+- [ ] Admin puede modificar allowedApps de "provider" para incluir "dashboard"
+- [ ] Los roles del tenant se sincronizan con FusionAuth Application
+- [ ] GET /api/admin/roles devuelve los roles del tenant con sus allowedApps
 
 **Tareas:**
-- [ ] Crear package `@serveflow/authorization`
-- [ ] Implementar `useAuthorization` hook
-- [ ] Implementar componente `<Can />`
-- [ ] Crear `DEFAULT_DASHBOARD_ROUTES`
-- [ ] Actualizar middleware Next.js con protección de rutas
-- [ ] Crear página `/unauthorized`
-- [ ] Verificar `@Roles()` en endpoints críticos del backend
+- [ ] Crear collection `role_templates` en db_serveflow_sys
+- [ ] Crear collection `tenant_roles` en db_tenant_{slug}
+- [ ] Seed de templates base: admin, employee, provider, client
+- [ ] Modificar flujo de creación de tenant para copiar templates
+- [ ] API CRUD para tenant_roles (solo admin del tenant)
+- [ ] Sincronización tenant_roles → FusionAuth Application.roles
+- [ ] Añadir allowedApps a User.data en registro/update de usuario
 
-### Prompt Hito 1
+### Prompt Hito 1A
 
-```markdown
+````markdown
 # Contexto del Proyecto
 
 Eres un experto en arquitectura SaaS B2B2C multi-tenant. Trabajas en Serveflow,
-una plataforma donde cada tenant tiene su configuración de roles y permisos.
+una plataforma donde cada tenant puede personalizar sus roles y permisos.
 
-## Documentación del Proyecto (LEER PRIMERO)
+## Documentación del Proyecto (LEER OBLIGATORIO)
 
 Archivo: `docs/v2/03-PERMISOS.md`
-- Sección 6: Flujos de autorización actuales
+- Sección 1: Visión General - Conceptos ROL/ACCESO/PERMISO/SCOPE
+- Sección 3.2: MongoDB Sistema - RoleTemplate interface
+- Sección 3.3: MongoDB Tenant - TenantRole interface
+- Sección 4: Sistema de Role Templates (IMPLEMENTAR ESTO)
+- Sección 5.1: Flujo de creación de usuario
+
+## Documentación Oficial (Consultar)
+
+- FusionAuth Applications: https://fusionauth.io/docs/lifecycle/manage-applications
+- FusionAuth Roles: https://fusionauth.io/docs/get-started/core-concepts/roles
+- MongoDB Indexes: https://www.mongodb.com/docs/manual/indexes/
+
+## Estructura del Monorepo (Relevante)
+
+```
+packages/
+├── auth/
+│   └── src/fusionauth/
+│       ├── client.ts          # FusionAuth client
+│       ├── users.ts           # User operations
+│       └── applications.ts    # ⭐ CREAR/MODIFICAR - Role sync
+├── core/
+│   └── src/types/
+│       └── tenant.ts          # TenantMVP type
+└── db/
+    └── src/
+        ├── models/            # ⭐ CREAR: RoleTemplate, TenantRole
+        └── seeds/             # ⭐ CREAR: role-templates.seed.ts
+
+apps/
+├── admin/server/
+│   └── src/
+│       └── tenants/           # Flujo creación tenant
+└── tenant/server/
+    └── src/
+        └── roles/             # ⭐ CREAR: CRUD tenant_roles
+```
+
+## Modelo de Datos a Implementar
+
+```typescript
+// db_serveflow_sys.role_templates
+interface RoleTemplate {
+  _id: ObjectId;
+  slug: string;                        // "admin", "employee", "provider", "client"
+  name: string;                        // "Administrador"
+  description: string;
+  defaultAllowedApps: ('dashboard' | 'webapp')[];
+  isSuperRole: boolean;                // true para admin
+  isDefault: boolean;                  // true para client (self-registration)
+  basePermissions: Permission[];       // Para Cerbos (Hito 3)
+  isSystemTemplate: boolean;           // No se puede eliminar
+}
+
+// db_tenant_{slug}.tenant_roles
+interface TenantRole {
+  _id: ObjectId;
+  templateSlug?: string;               // Referencia al template original
+  slug: string;
+  name: string;
+  description?: string;
+  allowedApps: ('dashboard' | 'webapp')[];  // ⭐ CLAVE: qué apps puede acceder
+  isSuperRole: boolean;
+  isDefault: boolean;
+  isActive: boolean;
+  isFromTemplate: boolean;
+  isCustom: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+```
+
+## Templates Base (Seed)
+
+```typescript
+const ROLE_TEMPLATES = [
+  {
+    slug: "admin",
+    name: "Administrador",
+    defaultAllowedApps: ["dashboard"],
+    isSuperRole: true,
+    isDefault: false,
+  },
+  {
+    slug: "employee",
+    name: "Empleado",
+    defaultAllowedApps: ["dashboard"],
+    isSuperRole: false,
+    isDefault: false,
+  },
+  {
+    slug: "provider",
+    name: "Proveedor",
+    defaultAllowedApps: ["webapp"],  // Por defecto solo webapp
+    isSuperRole: false,
+    isDefault: false,
+  },
+  {
+    slug: "client",
+    name: "Cliente",
+    defaultAllowedApps: ["webapp"],
+    isSuperRole: false,
+    isDefault: true,  // Self-registration
+  },
+];
+```
+
+## Principios
+
+1. **Templates son plantillas**: Se copian al crear tenant, cada tenant modifica su copia
+2. **allowedApps es la clave**: Define a qué apps puede acceder un rol
+3. **Sync con FusionAuth**: Los roles deben existir en la Application de FusionAuth
+4. **isSystemTemplate**: Los 4 base no se pueden eliminar, solo modificar
+
+## Tarea
+
+1. **Crear modelos Mongoose**
+   - RoleTemplateSchema en packages/db
+   - TenantRoleSchema en packages/db
+
+2. **Seed de role_templates**
+   - Script que inserta los 4 templates en db_serveflow_sys
+   - Ejecutable con: `npm run db:seed:role-templates`
+
+3. **Modificar creación de tenant**
+   - Al crear tenant: copiar role_templates a tenant_roles
+   - Crear los roles en FusionAuth Application
+
+4. **API tenant_roles**
+   ```
+   GET    /api/roles           → Lista roles del tenant
+   POST   /api/roles           → Crear rol custom
+   PUT    /api/roles/:slug     → Modificar rol (ej: cambiar allowedApps)
+   DELETE /api/roles/:slug     → Eliminar rol (solo custom)
+   ```
+
+5. **Sync con FusionAuth**
+   - Al modificar tenant_roles → actualizar Application.roles
+   - Función: syncTenantRolesToFusionAuth(tenantSlug)
+
+## Verificación
+
+```bash
+# 1. Crear nuevo tenant
+POST /api/admin/tenants { slug: "gimnasio-test", ... }
+# → Verificar: db_tenant_gimnasio-test.tenant_roles tiene 4 documentos
+
+# 2. Listar roles del tenant
+GET /api/roles (como admin de gimnasio-test)
+# → [admin, employee, provider, client] con sus allowedApps
+
+# 3. Modificar allowedApps de provider
+PUT /api/roles/provider { allowedApps: ["dashboard", "webapp"] }
+# → provider ahora puede acceder a dashboard
+
+# 4. Crear rol custom
+POST /api/roles { slug: "receptionist", name: "Recepcionista", allowedApps: ["dashboard"] }
+# → Nuevo rol creado y sincronizado con FusionAuth
+
+# 5. Verificar sync con FusionAuth
+# → En FusionAuth Admin: Application del tenant tiene 5 roles
+```
+````
+
+---
+
+## HITO 1B: ACCESO (UI + Middleware)
+
+**Concepto:** A qué APPS puede entrar y qué ve en cada una
+
+**Objetivo:** Implementar control de acceso en todas las apps basado en allowedApps del rol.
+
+**Criterios de Éxito (Testeable):**
+- [ ] Employee (allowedApps: ['dashboard']) accede a tenant-dashboard ✓
+- [ ] Employee intenta acceder a tenant-webapp → Redirect a /unauthorized
+- [ ] Provider (allowedApps: ['webapp']) accede a tenant-webapp ✓
+- [ ] Provider (allowedApps: ['dashboard', 'webapp']) accede a ambas
+- [ ] Superadmin accede a admin-dashboard, pero NO a tenant-dashboard
+- [ ] Navbar muestra solo rutas permitidas según rol
+
+**Tareas:**
+- [ ] **Actualizar `packages/auth/src/fusionauth/tenants.ts`:**
+  - Modificar `createFusionAuthTenantWithApplication` → `createFusionAuthTenantWithApplications`
+  - Crear 2 Applications: Dashboard + WebApp (no API, es M2M fase posterior)
+  - Retornar `{ dashboard: { id }, webapp: { id } }` en lugar de singular
+  - Actualizar `packages/db/src/operations/tenants.ts` para usar nueva estructura
+- [ ] Crear package `@serveflow/authorization`
+- [ ] Implementar useAuthorization hook
+- [ ] Implementar componente `<Can />`
+- [ ] Crear DEFAULT_ROUTES por app (dashboard, webapp)
+- [ ] Modificar middleware de TODAS las apps
+- [ ] Crear páginas /unauthorized en TODAS las apps
+- [ ] Implementar @Roles() decorator en backends
+- [ ] Proteger endpoints críticos
+
+### Prompt Hito 1B
+
+````markdown
+# Contexto del Proyecto
+
+Continuación de Serveflow. Hito 1A completado:
+- ✅ role_templates en db_serveflow_sys
+- ✅ tenant_roles copiados al crear tenant
+- ✅ Cada rol tiene allowedApps definido
+- ✅ Sync con FusionAuth Application
+
+Ahora: Implementar control de acceso en TODAS las apps basado en allowedApps.
+
+## Documentación del Proyecto (LEER OBLIGATORIO)
+
+Archivo: `docs/v2/03-PERMISOS.md`
+- Sección 6.1: Flujo actual de autenticación
+- Sección 6.3: Componentes de auth implementados
 - Sección 9.4: Autorización en Frontend (IMPLEMENTAR ESTO)
   - 9.4.1: Modelo DashboardRoute y defaults
   - 9.4.2: Hook useAuthorization
   - 9.4.3: Protección en middleware
+  - 9.4.4: Navegación dinámica
   - 9.4.5: Componente Can
+  - 9.4.6: Flujo completo
 
 ## Documentación Oficial (Consultar)
 
-- FusionAuth: https://fusionauth.io/docs/llms.txt
 - Next.js Middleware: https://nextjs.org/docs/app/building-your-application/routing/middleware
 - NestJS Guards: https://docs.nestjs.com/guards
+- NestJS Custom Decorators: https://docs.nestjs.com/custom-decorators
+
+## TAREA 0: Actualizar creación de FusionAuth Apps
+
+**ANTES de crear el package authorization**, actualizar `packages/auth/src/fusionauth/tenants.ts`:
+
+```typescript
+// ACTUAL (incorrecto):
+// Modelo: 1 Serveflow Tenant = 1 FusionAuth Tenant + 1 FusionAuth Application
+
+// NUEVO (correcto):
+// Modelo: 1 Serveflow Tenant = 1 FusionAuth Tenant + 2 FusionAuth Applications (Dashboard + WebApp)
+// Nota: API es M2M y se crea por separado (ver sección 6.7)
+
+export interface CreateTenantWithApplicationsResult {
+  tenant: FusionAuthTenantResult;
+  applications: {
+    dashboard: FusionAuthApplicationResult;
+    webapp: FusionAuthApplicationResult;
+  };
+}
+
+// Renombrar: createFusionAuthTenantWithApplication → createFusionAuthTenantWithApplications
+// Crear 2 apps con diferentes redirect URLs:
+// - Dashboard: /${slug}.serveflow.app/oauth/callback (admin, employee)
+// - WebApp: /${slug}.app.serveflow.app/oauth/callback (provider, client)
+```
+
+También actualizar `packages/db/src/operations/tenants.ts` para usar la nueva estructura.
 
 ## Estructura del Monorepo
 
+```
 packages/
-├── auth/                    # FusionAuth guards existentes
-│   └── src/guards/         # FusionAuthGuard implementado
-├── ui/                      # Componentes compartidos
-│   └── src/hooks/          # useFusionAuth, etc.
-├── tenants/                 # Contexto de tenant
-│   └── src/context/        # TenantContext
-└── authorization/          # ⭐ CREAR ESTE PACKAGE
-    └── src/
-        ├── hooks/use-authorization.ts
-        ├── components/Can.tsx
-        ├── config/default-routes.ts
-        └── index.ts
+├── auth/src/fusionauth/
+│   └── tenants.ts                  # ⭐ MODIFICAR: crear 2 apps (Dashboard + WebApp)
+├── authorization/                  # ⭐ CREAR PACKAGE COMPLETO
+│   ├── package.json
+│   ├── tsconfig.json
+│   └── src/
+│       ├── index.ts
+│       ├── types/
+│       │   ├── auth-context.ts
+│       │   └── routes.ts
+│       ├── config/
+│       │   ├── default-dashboard-routes.ts
+│       │   └── default-webapp-routes.ts
+│       ├── hooks/
+│       │   ├── use-authorization.ts
+│       │   └── use-current-user.ts
+│       ├── components/
+│       │   ├── Can.tsx
+│       │   ├── RequireRole.tsx
+│       │   └── AuthorizationProvider.tsx
+│       ├── guards/                 # Backend (NestJS)
+│       │   └── roles.guard.ts
+│       └── decorators/
+│           └── roles.decorator.ts
 
-apps/tenant/dashboard/src/
-├── middleware.ts           # ⭐ MODIFICAR
-├── app/unauthorized/       # ⭐ CREAR
-└── components/nav/         # ⭐ MODIFICAR
+apps/
+├── admin/
+│   ├── dashboard/src/
+│   │   ├── middleware.ts          # ⭐ MODIFICAR: solo superadmin
+│   │   └── app/unauthorized/      # ⭐ CREAR
+│   └── server/src/
+│       └── guards/                # ⭐ VERIFICAR: @Roles()
+│
+├── tenant/
+│   ├── dashboard/src/
+│   │   ├── middleware.ts          # ⭐ MODIFICAR: verificar allowedApps
+│   │   ├── app/unauthorized/      # ⭐ CREAR
+│   │   └── components/nav/        # ⭐ MODIFICAR: usar getAccessibleRoutes
+│   ├── webapp/src/
+│   │   ├── middleware.ts          # ⭐ MODIFICAR: verificar allowedApps
+│   │   └── app/unauthorized/      # ⭐ CREAR
+│   └── server/src/
+│       └── guards/                # ⭐ VERIFICAR: @Roles()
+```
+
+## Lógica de Acceso por App
+
+```typescript
+// ¿Puede el usuario acceder a esta app?
+function canAccessApp(userRoles: string[], appType: 'dashboard' | 'webapp', tenantRoles: TenantRole[]): boolean {
+  // Buscar los roles del usuario que tienen esta app en allowedApps
+  for (const userRole of userRoles) {
+    const tenantRole = tenantRoles.find(r => r.slug === userRole);
+    if (tenantRole?.allowedApps.includes(appType)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Ejemplo:
+// userRoles: ["provider"]
+// tenantRoles: [{ slug: "provider", allowedApps: ["webapp"] }]
+// canAccessApp(["provider"], "dashboard", tenantRoles) → false
+// canAccessApp(["provider"], "webapp", tenantRoles) → true
+```
+
+## Middleware por App
+
+```typescript
+// apps/tenant/dashboard/src/middleware.ts
+export async function middleware(req: NextRequest) {
+  // 1. Validar token (existente)
+  const token = req.cookies.get('fa_access_token');
+  if (!token) return redirect('/sign-in');
+
+  // 2. Decodificar y obtener roles
+  const { roles } = decodeToken(token);
+
+  // 3. Obtener tenant_roles (del tenant context o API)
+  const tenantRoles = await getTenantRoles(tenantSlug);
+
+  // 4. ¿Puede acceder a dashboard?
+  if (!canAccessApp(roles, 'dashboard', tenantRoles)) {
+    return redirect('/unauthorized');
+  }
+
+  // 5. ¿Puede acceder a esta ruta específica?
+  if (!canAccessRoute(pathname, roles)) {
+    return redirect('/unauthorized');
+  }
+
+  return next();
+}
+```
 
 ## Principios
 
-1. No hardcodear: DEFAULT_DASHBOARD_ROUTES preparado para config dinámica
-2. Frontend oculta, Backend valida: Proteger en AMBOS lados
-3. Abstracción: useAuthorization es única fuente de verdad
-4. Reutilizable: Package funciona en dashboard Y webapp
+1. **Package compartido**: @serveflow/authorization usado por todas las apps
+2. **allowedApps decide**: Si el rol no tiene la app en allowedApps → no entra
+3. **Frontend oculta, Backend valida**: Middleware + Guards
+4. **Rutas por defecto**: DEFAULT_ROUTES preparado para config dinámica
 
 ## Tarea
 
-1. Crear package `@serveflow/authorization` siguiendo sección 9.4
-2. Modificar middleware.ts para proteger rutas
-3. Crear página /unauthorized
-4. Modificar navegación para usar getAccessibleRoutes()
-5. Verificar @Roles() en endpoints del backend
+### Parte A: Package @serveflow/authorization
+
+1. Crear package con estructura mostrada arriba
+2. Implementar useAuthorization (sección 9.4.2 del doc)
+3. Implementar <Can /> component (sección 9.4.5)
+4. Implementar RolesGuard para NestJS
+5. DEFAULT_DASHBOARD_ROUTES y DEFAULT_WEBAPP_ROUTES
+
+### Parte B: Admin Dashboard
+
+6. Modificar middleware: solo permitir rol "superadmin"
+7. Crear página /unauthorized
+8. Navbar fijo (superadmin ve todo)
+
+### Parte C: Tenant Dashboard
+
+9. Modificar middleware: verificar allowedApps incluye 'dashboard'
+10. Verificar acceso a rutas según rol
+11. Crear página /unauthorized
+12. Navbar dinámico con getAccessibleRoutes()
+13. <Can /> en botones de acción
+
+### Parte D: Tenant WebApp
+
+14. Modificar middleware: verificar allowedApps incluye 'webapp'
+15. Rutas públicas: /, /services, /booking
+16. Rutas privadas: /my-bookings, /profile
+17. Crear página /unauthorized
+18. UI diferenciada client vs provider
+
+### Parte E: Backends
+
+19. Verificar @Roles() en admin-server
+20. Verificar @Roles() en tenant-server
+21. Endpoints críticos protegidos
 
 ## Verificación
 
-Login como employee:
-- Navbar: Dashboard, Reservas, Eventos, Servicios ✓
-- NO muestra: Usuarios, Configuración
-- URL /users → /unauthorized
-- DELETE /api/users/123 → 403
+```bash
+# Escenario 1: Employee (allowedApps: ['dashboard'])
+Login como employee
+- Accede a tenant-dashboard ✓
+- Intenta tenant-webapp/my-bookings → /unauthorized
+- Navbar muestra: Dashboard, Reservas, Eventos, Servicios
+- Navbar NO muestra: Usuarios, Configuración
 
-Login como admin:
-- Navbar: TODAS las rutas
-- Acceso a /users, /settings ✓
+# Escenario 2: Provider default (allowedApps: ['webapp'])
+Login como provider
+- Accede a tenant-webapp ✓
+- Intenta tenant-dashboard → /unauthorized
+
+# Escenario 3: Provider configurado (allowedApps: ['dashboard', 'webapp'])
+Admin modifica provider.allowedApps = ['dashboard', 'webapp']
+Login como provider
+- Accede a tenant-dashboard ✓
+- Accede a tenant-webapp ✓
+
+# Escenario 4: Client (allowedApps: ['webapp'])
+Login como client
+- Accede a tenant-webapp ✓
+- Rutas públicas sin login ✓
+- /my-bookings requiere login ✓
+
+# Escenario 5: Superadmin
+Login como superadmin
+- Accede a admin-dashboard ✓
+- Intenta tenant-dashboard → /unauthorized (no es usuario de ese tenant)
 ```
+````
 
 ---
 
-## HITO 2: Organizations + Scope por Sede
+## HITO 2: SCOPE (Organizations)
 
-**Objetivo:** Gestión de organizations y filtrado de datos por sede.
+**Concepto:** En qué ÁMBITO opera el usuario
+
+**Objetivo:** Implementar gestión de organizations y filtrado automático de datos por sede.
 
 **Criterios de Éxito (Testeable):**
 - [ ] Admin crea 3 organizations: Madrid Centro, Madrid Norte, Barcelona
-- [ ] Employee de Madrid Centro solo ve bookings de esa sede
-- [ ] Employee hace GET /api/bookings?organizationId=barcelona → 403
-- [ ] OrganizationSwitcher permite cambiar entre sedes asignadas
-- [ ] Cliente Premium (organizationIds: []) ve todas las sedes
+- [ ] Employee asignado a Madrid Centro solo ve bookings de esa sede
+- [ ] GET /api/bookings?organizationId=barcelona → 403 si no tiene acceso
+- [ ] OrganizationSwitcher muestra solo sedes asignadas
+- [ ] Admin (organizationIds: []) ve todas las sedes
+- [ ] Cliente Premium (organizationIds: []) puede reservar en cualquier sede
 
 **Tareas:**
-- [ ] Crear collection `organizations` en MongoDB
+- [ ] Crear collection `organizations` en db_tenant_{slug}
 - [ ] API CRUD para organizations
-- [ ] Añadir `organizationIds` a User.data en FusionAuth
-- [ ] Crear JWT Populate Lambda
-- [ ] Implementar OrganizationSwitcher
-- [ ] Filtrar queries por organizationId en backend
-- [ ] Lógica "organizationIds vacío = todas"
+- [ ] Añadir organizationIds a User.data en FusionAuth
+- [ ] Crear JWT Populate Lambda para incluir organizationIds
+- [ ] Implementar useOrganization hook
+- [ ] Implementar OrganizationSwitcher component
+- [ ] Middleware que inyecta organizationIds en request
+- [ ] Filtrado automático en queries de backend
+- [ ] Lógica "organizationIds: [] = todas"
 
 ### Prompt Hito 2
 
-```markdown
+````markdown
 # Contexto del Proyecto
 
-Continuación de Serveflow. Hito 1 completado:
-- ✅ Autorización por roles frontend/backend
+Continuación de Serveflow. Hitos anteriores completados:
+- ✅ Hito 1A: Role Templates y tenant_roles
+- ✅ Hito 1B: Control de acceso a apps por allowedApps
 
-Ahora: Organizations (sedes/sucursales) y scope de datos por sede.
+Ahora: Organizations (sedes/sucursales) y scope de datos.
 
-## Documentación del Proyecto (LEER PRIMERO)
+## Documentación del Proyecto (LEER OBLIGATORIO)
 
 Archivo: `docs/v2/03-PERMISOS.md`
 - Sección 3.1: FusionAuth User.data.organizationIds
 - Sección 3.3: MongoDB organizations y user_organizations
-- Sección 5.3: Flujo asignación a organizations
-- Sección 8: Escenario Gimnasio 20 Sedes
-- Sección 9.3: OrganizationSwitcher
+- Sección 5.3: Flujo de asignación a organizations
+- Sección 6.5: Claims adicionales para JWT
+- Sección 8: Escenario Gimnasio 20 Sedes (referencia completa)
+- Sección 9.3: OrganizationSwitcher component
 
 ## Documentación Oficial (Consultar)
 
-- FusionAuth Lambdas: https://fusionauth.io/docs/extend/code/lambdas/
-- FusionAuth JWT Populate: https://fusionauth.io/docs/extend/code/lambdas/jwt-populate
+- FusionAuth JWT Populate Lambda: https://fusionauth.io/docs/extend/code/lambdas/jwt-populate
+- FusionAuth User.data: https://fusionauth.io/docs/apis/users
+
+## Estructura del Monorepo
+
+```
+packages/
+├── authorization/
+│   └── src/
+│       ├── hooks/
+│       │   └── use-organization.ts      # ⭐ CREAR
+│       ├── components/
+│       │   └── OrganizationSwitcher.tsx # ⭐ CREAR
+│       └── context/
+│           └── OrganizationContext.tsx  # ⭐ CREAR
+├── auth/
+│   └── src/
+│       ├── fusionauth/
+│       │   └── users.ts                 # ⭐ MODIFICAR: organizationIds
+│       └── types.ts                     # ⭐ MODIFICAR: JWT claims
+└── db/
+    └── src/models/
+        └── organization.model.ts        # ⭐ CREAR
+
+apps/tenant/
+├── dashboard/src/
+│   └── components/
+│       └── header/                      # ⭐ AÑADIR OrganizationSwitcher
+├── webapp/src/
+│   └── components/
+│       └── location-selector/           # ⭐ CREAR (para multi-sede)
+└── server/src/
+    ├── organizations/                   # ⭐ CREAR: CRUD
+    └── middleware/
+        └── organization-scope.middleware.ts  # ⭐ CREAR
+
+infra/fusionauth/
+└── lambdas/
+    └── jwt-populate.js                  # ⭐ CREAR
+```
 
 ## Modelo de Datos
 
-// MongoDB: db_tenant_{slug}.organizations
+```typescript
+// db_tenant_{slug}.organizations
 interface Organization {
   _id: ObjectId;
-  slug: string;           // "madrid-centro"
-  name: string;           // "Madrid Centro"
-  address?: Address;
+  slug: string;              // "madrid-centro"
+  name: string;              // "Madrid Centro"
+  address?: {
+    street: string;
+    city: string;
+    postalCode: string;
+    country: string;
+    coordinates?: { lat: number; lng: number };
+  };
+  contact?: {
+    phone?: string;
+    email?: string;
+  };
+  settings: {
+    timezone: string;
+    currency: string;
+  };
   isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
-// FusionAuth User.data (añadir)
-organizationIds: string[];
-primaryOrganizationId?: string;
+// FusionAuth User.data (añadir campos)
+interface UserData {
+  serveflowTenantId: string;
+  serveflowTenantSlug: string;
+  roles: string[];
+  organizationIds: string[];        // ⭐ NUEVO
+  primaryOrganizationId?: string;   // ⭐ NUEVO
+}
 
 // JWT Claims (añadir via Lambda)
-organizationIds: string[];
-primaryOrganizationId?: string;
+interface JWTClaims {
+  // ... existentes
+  organizationIds: string[];
+  primaryOrganizationId?: string;
+}
+```
+
+## JWT Populate Lambda
+
+```javascript
+// infra/fusionauth/lambdas/jwt-populate.js
+// Configurar en: FusionAuth Admin → Tenants → Lambdas → JWT Populate
+
+function populate(jwt, user, registration, context) {
+  // Añadir organizationIds al JWT
+  jwt.organizationIds = user.data.organizationIds || [];
+  jwt.primaryOrganizationId = user.data.primaryOrganizationId || null;
+
+  // Añadir tenant slug
+  jwt.tenantSlug = user.data.serveflowTenantSlug;
+
+  return jwt;
+}
+```
+
+## Lógica de Scope
+
+```typescript
+// organizationIds: [] significa TODAS las organizaciones
+function getOrganizationFilter(userOrgIds: string[], requestedOrgId?: string) {
+  // Usuario tiene acceso a todas
+  if (userOrgIds.length === 0) {
+    return requestedOrgId ? { organizationId: requestedOrgId } : {};
+  }
+
+  // Usuario tiene acceso limitado
+  if (requestedOrgId) {
+    if (!userOrgIds.includes(requestedOrgId)) {
+      throw new ForbiddenException('No access to this organization');
+    }
+    return { organizationId: requestedOrgId };
+  }
+
+  // Sin org específica: filtrar por las del usuario
+  return { organizationId: { $in: userOrgIds } };
+}
+```
 
 ## Principios
 
-1. organizationIds: [] = TODAS las sedes
-2. Filtrar SIEMPRE en backend
-3. JWT Populate Lambda para añadir claims
-4. OrganizationSwitcher solo muestra sedes con acceso
+1. **organizationIds: [] = TODAS**: Array vacío significa acceso completo
+2. **Filtrar SIEMPRE en backend**: No confiar en frontend
+3. **JWT contiene los IDs**: Añadidos via Lambda, disponibles sin query
+4. **OrganizationSwitcher**: Solo muestra orgs a las que tiene acceso
 
 ## Tarea
 
-1. MongoDB: Schema Organization en packages/tenants
-2. API: CRUD organizations (GET, POST, PUT, DELETE)
-3. FusionAuth: Función asignar usuario a organization
-4. JWT Lambda: Script para añadir organizationIds
-5. Frontend: OrganizationSwitcher component
-6. Backend: Filtrado automático por organizationIds
+### Parte A: MongoDB
+
+1. Crear modelo Organization en packages/db
+2. Crear modelo UserOrganization (metadata) si necesario
+3. Índices: slug unique, isActive
+
+### Parte B: API Organizations
+
+4. CRUD organizations:
+   ```
+   GET    /api/organizations          → Lista (filtrada por acceso)
+   POST   /api/organizations          → Crear (solo admin)
+   GET    /api/organizations/:slug    → Detalle
+   PUT    /api/organizations/:slug    → Actualizar
+   DELETE /api/organizations/:slug    → Eliminar
+   ```
+
+### Parte C: FusionAuth
+
+5. Modificar users.ts: funciones para gestionar organizationIds
+   - assignUserToOrganization(userId, orgId)
+   - removeUserFromOrganization(userId, orgId)
+   - setUserOrganizations(userId, orgIds)
+
+6. Crear JWT Populate Lambda
+   - Documentar cómo configurar en FusionAuth Admin
+
+7. Actualizar tipos JWT en packages/auth
+
+### Parte D: Frontend
+
+8. useOrganization hook:
+   - currentOrganization
+   - organizations (lista a las que tiene acceso)
+   - setCurrentOrganization
+   - hasFullAccess (organizationIds.length === 0)
+
+9. OrganizationSwitcher component:
+   - Select/Dropdown con orgs
+   - "Todas las sedes" si hasFullAccess
+   - Guardar selección en localStorage
+
+10. Integrar en tenant-dashboard header
+11. Integrar en tenant-webapp (selector de ubicación)
+
+### Parte E: Backend Filtering
+
+12. Middleware/interceptor que:
+    - Lee organizationIds del JWT
+    - Inyecta en request context
+    - Disponible para queries
+
+13. Modificar servicios para usar getOrganizationFilter()
+
+14. Ejemplo con BookingsService:
+    ```typescript
+    async list(ctx: AuthContext, filters: ListFilters) {
+      const orgFilter = getOrganizationFilter(
+        ctx.organizationIds,
+        filters.organizationId
+      );
+      return this.bookingModel.find({ ...filters, ...orgFilter });
+    }
+    ```
 
 ## Verificación
 
-Employee asignado a: ["madrid-centro", "madrid-norte"]
-- OrganizationSwitcher muestra solo esas 2
-- GET /api/bookings → solo de sus sedes
-- GET /api/bookings?organizationId=barcelona → 403
+```bash
+# Setup
+Admin crea 3 organizations: madrid-centro, madrid-norte, barcelona
+Employee Juan asignado a: ["madrid-centro", "madrid-norte"]
+Admin Carlos (organizationIds: [])
+Cliente Premium (organizationIds: [])
+Cliente Normal asignado a: ["madrid-centro"]
 
-Admin (organizationIds: [])
-- Ve "Todas las sedes" + lista completa
-- Accede a cualquier booking
+# Test 1: Employee Juan
+Login Juan
+OrganizationSwitcher muestra: Madrid Centro, Madrid Norte (NO Barcelona)
+Selecciona "Madrid Centro"
+GET /api/bookings → solo bookings de Madrid Centro
+GET /api/bookings?organizationId=barcelona → 403 Forbidden
+
+# Test 2: Admin Carlos
+Login Carlos
+OrganizationSwitcher muestra: "Todas las sedes", Madrid Centro, Madrid Norte, Barcelona
+Selecciona "Todas las sedes"
+GET /api/bookings → bookings de TODAS las sedes
+Selecciona "Barcelona"
+GET /api/bookings → solo bookings de Barcelona
+
+# Test 3: Cliente Premium
+En webapp, selector de ubicación muestra TODAS las sedes
+Puede reservar en cualquier sede
+
+# Test 4: Cliente Normal
+En webapp, selector de ubicación muestra solo Madrid Centro
+Solo puede reservar en Madrid Centro
 ```
+````
 
 ---
 
-## HITO 3: Cerbos + Configuración por Tenant
+## HITO 3: PERMISO (Cerbos + Config Tenant)
 
-**Objetivo:** Permisos granulares con Cerbos y dashboard configurable por tenant.
+**Concepto:** Qué puede HACER y con qué condiciones
+
+**Objetivo:** Implementar permisos granulares con Cerbos y configuración dinámica de dashboard por tenant.
 
 **Criterios de Éxito (Testeable):**
-- [ ] Client solo cancela SUS PROPIAS reservas
-- [ ] Employee cancela cualquier reserva de SU sede
-- [ ] Tenant "gimnasio-fitmax" configura que Provider vea /events
-- [ ] Otro tenant mantiene defaults (Provider no ve /events)
-- [ ] Policies en PostgreSQL, no archivos
+- [ ] Client solo puede cancelar SUS PROPIOS eventos (reservas)
+- [ ] Employee puede cancelar cualquier evento de SU sede
+- [ ] Client no puede cancelar evento de otro client → 403
+- [ ] Employee no puede cancelar evento de otra sede → 403
+- [ ] Tenant FitMax configura que provider vea /events
+- [ ] Provider de FitMax ve /events en navbar
+- [ ] Provider de otro tenant NO ve /events (usa defaults)
+- [ ] Policies almacenadas en PostgreSQL, no en archivos
 
 **Tareas:**
 - [ ] Instalar y configurar Cerbos con PostgreSQL
-- [ ] Crear base policies (booking, event, service, user)
-- [ ] Implementar CerbosGuard y @CheckPermission
+- [ ] Crear base policies (event, service, resource, user)
+- [ ] Implementar CerbosService en packages/authorization
+- [ ] Implementar CerbosGuard
+- [ ] Crear @CheckPermission decorator
 - [ ] Endpoint /api/auth/check para frontend
-- [ ] Migrar `<Can />` a permisos
-- [ ] Collection dashboard_config
-- [ ] API configurar rutas por tenant
+- [ ] Migrar <Can /> para soportar permisos
+- [ ] Crear collection dashboard_config
+- [ ] API para configurar dashboard por tenant
+- [ ] useAuthorization carga config del tenant
 
 ### Prompt Hito 3
 
-```markdown
+````markdown
 # Contexto del Proyecto
 
-Continuación de Serveflow. Hitos 1-2 completados:
-- ✅ Autorización por roles
-- ✅ Organizations y scope por sede
+Continuación de Serveflow. Hitos anteriores completados:
+- ✅ Hito 1A: Role Templates y tenant_roles
+- ✅ Hito 1B: Control de acceso a apps
+- ✅ Hito 2: Organizations y scope por sede
 
-Ahora: Permisos granulares con Cerbos + config dinámica por tenant.
+Ahora: Permisos granulares con Cerbos + configuración dinámica de dashboard.
 
-## Documentación del Proyecto (LEER PRIMERO)
+## Documentación del Proyecto (LEER OBLIGATORIO)
 
 Archivo: `docs/v2/03-PERMISOS.md`
 - Sección 3.4: Cerbos - Estructura de Policies
 - Sección 6.2: Flujo OBJETIVO con Cerbos
 - Sección 7: Gestión de Permisos y Recursos
-- Sección 9.2: CerbosGuard implementación
+- Sección 9.2: Flujo de Request con CerbosGuard
 - Sección 9.4.7: Migración a config por tenant
+- Sección 9.5: SYSTEM_RESOURCES - Catálogo centralizado de recursos
 
 ## Documentación Oficial (Consultar)
 
-- Cerbos: https://docs.cerbos.dev/cerbos/latest/
+- Cerbos Getting Started: https://docs.cerbos.dev/cerbos/latest/tutorial/
 - Cerbos Policies: https://docs.cerbos.dev/cerbos/latest/policies/
-- Cerbos Node SDK: https://www.npmjs.com/package/@cerbos/sdk
+- Cerbos Node SDK: https://docs.cerbos.dev/cerbos/latest/api/sdk/node/
+- Cerbos PostgreSQL Storage: https://docs.cerbos.dev/cerbos/latest/configuration/storage#postgres
+- Cerbos Scoped Policies: https://docs.cerbos.dev/cerbos/latest/policies/scoped_policies
 
-## Arquitectura
+## Estructura del Monorepo
 
-Frontend <Can />  →  Tenant API  →  Cerbos PDP  →  PostgreSQL
-                    CerbosGuard      (Docker)      (policies)
+```
+packages/authorization/
+└── src/
+    ├── services/
+    │   └── cerbos.service.ts        # ⭐ CREAR
+    ├── guards/
+    │   └── cerbos.guard.ts          # ⭐ CREAR
+    ├── decorators/
+    │   └── check-permission.ts      # ⭐ CREAR
+    ├── components/
+    │   └── Can.tsx                  # ⭐ MODIFICAR: añadir permission prop
+    └── policies/                    # ⭐ CREAR: definiciones base
+        ├── event.yaml
+        ├── service.yaml
+        ├── resource.yaml
+        └── user.yaml
 
-## Estructura a Crear
+infra/
+├── cerbos/
+│   ├── docker-compose.yml           # ⭐ CREAR
+│   └── config/
+│       └── cerbos.yaml              # ⭐ CREAR
+└── postgres/
+    └── init-cerbos.sql              # ⭐ CREAR: schema para policies
 
-packages/authorization/src/
-├── guards/cerbos.guard.ts
-├── decorators/check-permission.ts
-├── services/cerbos.service.ts
-└── policies/  # Base policies
+apps/tenant/
+├── server/src/
+│   ├── auth/
+│   │   └── auth-check.controller.ts # ⭐ CREAR: /api/auth/check
+│   └── events/
+│       └── events.controller.ts     # ⭐ MODIFICAR: @CheckPermission
+└── dashboard/src/
+    └── app/settings/
+        └── dashboard/               # ⭐ CREAR: UI config rutas
+```
 
-infra/cerbos/
-├── docker-compose.yml
-└── config/cerbos.yaml
+## Arquitectura Cerbos
 
-## Policy Ejemplo
+```
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│   Frontend   │────▶│  Tenant API  │────▶│  Cerbos PDP  │
+│    <Can />   │     │ CerbosGuard  │     │   (Docker)   │
+│              │     │              │     │              │
+│  permission= │     │@CheckPerm... │     │   Policies   │
+│  {resource,  │     │              │     │   in PSQL    │
+│   action}    │     │              │     │              │
+└──────────────┘     └──────────────┘     └──────┬───────┘
+       │                                         │
+       │                                  ┌──────▼───────┐
+       │                                  │  PostgreSQL  │
+       └─────────────────────────────────▶│   Policies   │
+                /api/auth/check           └──────────────┘
+```
 
-# booking.yaml
+## Policies Base
+
+```yaml
+# policies/event.yaml
+# "Event" cubre: reservas, clases, sesiones, etc.
+# El tipo se distingue por serviceType en los atributos
+apiVersion: api.cerbos.dev/v1
 resourcePolicy:
-  resource: booking
+  resource: event
+  version: default
   rules:
-    - actions: ["*"]
+    # Admin: acceso total
+    - name: admin_full_access
+      actions: ["*"]
       effect: EFFECT_ALLOW
       roles: ["admin"]
 
-    - actions: ["create", "read", "update", "cancel"]
+    # Employee: CRUD en sus organizations
+    - name: employee_manage
+      actions: ["view", "create", "update", "delete", "cancel", "check_in"]
       effect: EFFECT_ALLOW
       roles: ["employee"]
       condition:
         match:
-          expr: R.attr.organizationId in P.attr.organizationIds
+          expr: >
+            P.attr.organizationIds.size() == 0 ||
+            R.attr.organizationId in P.attr.organizationIds
 
-    - actions: ["read", "cancel"]
+    # Provider: ver/gestionar sus eventos asignados
+    - name: provider_manage_assigned
+      actions: ["view", "update"]
+      effect: EFFECT_ALLOW
+      roles: ["provider"]
+      condition:
+        match:
+          expr: R.attr.providerId == P.id
+
+    # Client: ver eventos públicos, gestionar sus reservas
+    - name: client_own_events
+      actions: ["view", "create", "cancel"]
       effect: EFFECT_ALLOW
       roles: ["client"]
       condition:
         match:
-          expr: R.attr.ownerId == P.id
+          all:
+            of:
+              - expr: R.attr.ownerId == P.id || R.attr.isPublic == true
+              - expr: >
+                  P.attr.organizationIds.size() == 0 ||
+                  R.attr.organizationId in P.attr.organizationIds
+```
+
+## App Config por Tenant (Dashboard + WebApp)
+
+```typescript
+// db_tenant_{slug}.app_configs (un documento por app)
+// Ver sección 9.4.1 para modelo completo de AppRoute
+
+interface AppConfig {
+  _id: ObjectId;
+  app: 'dashboard' | 'webapp';
+  routes: AppRoute[];              // Rutas/vistas configuradas
+  publicRoutes?: string[];         // Solo webapp: rutas sin auth
+  homeWidgets?: Record<string, string[]>;  // Widgets por rol
+  updatedAt: Date;
+}
+
+// Prioridad:
+// 1. Si tenant tiene config para la app → usar la suya
+// 2. Si no → usar DEFAULT_DASHBOARD_ROUTES o DEFAULT_WEBAPP_ROUTES
+```
 
 ## Principios
 
-1. Policies en DB, no archivos
-2. Scoped policies para overrides por tenant
-3. Frontend consulta via /api/auth/check
-4. <Can /> compatible con roles Y permisos
+1. **Policies en PostgreSQL**: Cambios sin redeploy
+2. **Scoped Policies**: Overrides por tenant (scope: "tenant-slug")
+3. **Frontend consulta backend**: /api/auth/check, nunca directo a Cerbos
+4. **<Can /> retrocompatible**: Sigue funcionando con roles, añade permission
+5. **AppRoute extensible**: Modelo unificado para Dashboard y WebApp (ver 9.4.1)
 
 ## Tarea
 
-PARTE A: Cerbos Setup
+### Parte A: Infraestructura Cerbos
+
 1. Docker Compose para Cerbos
+   ```yaml
+   # infra/cerbos/docker-compose.yml
+   services:
+     cerbos:
+       image: ghcr.io/cerbos/cerbos:latest
+       ports:
+         - "3592:3592"
+         - "3593:3593"
+       volumes:
+         - ./config:/config
+       command: ["server", "--config=/config/cerbos.yaml"]
+   ```
+
 2. Configuración con PostgreSQL
-3. Base policies para recursos
+   ```yaml
+   # infra/cerbos/config/cerbos.yaml
+   server:
+     httpListenAddr: ":3592"
+     grpcListenAddr: ":3593"
+   storage:
+     driver: postgres
+     postgres:
+       url: ${CERBOS_POSTGRES_URL}
+       schema: cerbos
+   ```
 
-PARTE B: Backend
-4. CerbosService (cliente SDK)
-5. CerbosGuard
-6. @CheckPermission decorator
+3. Script para insertar policies en PostgreSQL
+
+### Parte B: CerbosService
+
+4. Cliente Cerbos en packages/authorization
+   ```typescript
+   @Injectable()
+   export class CerbosService {
+     private client: GRPC;
+
+     async check(params: CheckParams): Promise<boolean> {
+       const decision = await this.client.checkResource({
+         principal: params.principal,
+         resource: params.resource,
+         actions: [params.action],
+         auxData: { jwt: { scope: params.tenantSlug } }
+       });
+       return decision.isAllowed(params.action);
+     }
+   }
+   ```
+
+### Parte C: CerbosGuard + Decorator
+
+5. @CheckPermission decorator
+   ```typescript
+   @CheckPermission({ resource: 'event', action: 'cancel', idParam: 'id' })
+   ```
+
+6. CerbosGuard que:
+   - Lee metadata del decorator
+   - Carga atributos del recurso de MongoDB
+   - Consulta Cerbos
+   - 403 si denegado
+
+### Parte D: Frontend
+
 7. Endpoint /api/auth/check
+   ```typescript
+   POST /api/auth/check
+   { resource: "event", action: "cancel", resourceId: "123" }
+   → { allowed: true/false }
+   ```
 
-PARTE C: Frontend
-8. Modificar <Can /> para usar permisos
-9. useAuthorization carga dashboardConfig
+8. Modificar <Can /> para soportar permission
+   ```tsx
+   // Antes (sigue funcionando)
+   <Can roles={['admin']}>...</Can>
 
-PARTE D: Config por Tenant
-10. Collection dashboard_config
-11. API PUT /api/settings/dashboard
-12. Cargar config en TenantContext
+   // Nuevo
+   <Can permission={{ resource: 'event', action: 'cancel', resourceId: id }}>
+     <Button>Cancelar</Button>
+   </Can>
+   ```
+
+### Parte E: App Config (Dashboard + WebApp)
+
+9. Collection `app_configs` con modelo AppConfig (ver sección 9.4.1)
+   - Un documento por app: `{ app: 'dashboard', routes: [...] }`
+   - Otro documento: `{ app: 'webapp', routes: [...], publicRoutes: [...] }`
+
+10. API configuración (para ambas apps)
+    ```
+    GET  /api/settings/app-config?app=dashboard
+    PUT  /api/settings/app-config?app=dashboard
+    GET  /api/settings/app-config?app=webapp
+    PUT  /api/settings/app-config?app=webapp
+    ```
+
+11. useAuthorization carga config del tenant (ver sección 9.4.2)
+    ```typescript
+    // El hook ya soporta ambas apps
+    const { routes } = useAuthorization({ app: 'dashboard' });
+    // o
+    const { routes, publicRoutes } = useAuthorization({ app: 'webapp' });
+    ```
+
+12. UI básica en Settings > Apps para configurar rutas de Dashboard y WebApp
 
 ## Verificación
 
-Cerbos:
-- Employee cancela booking de SU sede → ✓
-- Employee cancela booking de OTRA sede → 403
-- Client cancela SU reserva → ✓
-- Client cancela reserva de OTRO → 403
+```bash
+# Test Cerbos (usando Event como recurso universal)
 
-Config por Tenant:
-- FitMax configura provider ve /events
-- Provider de FitMax ve /events ✓
-- Provider de OTRO tenant no ve /events
+# 1. Client cancela SU reserva (event donde es owner)
+Client A tiene event_123 (su reserva de pista)
+POST /api/events/event_123/cancel (como Client A)
+→ 200 OK ✓
+
+# 2. Client intenta cancelar reserva de otro
+Client A intenta cancelar event_456 (reserva de Client B)
+POST /api/events/event_456/cancel (como Client A)
+→ 403 Forbidden ✓
+
+# 3. Employee cancela evento de SU sede
+Employee (orgs: ["madrid"]) cancela event de Madrid
+→ 200 OK ✓
+
+# 4. Employee intenta cancelar evento de otra sede
+Employee (orgs: ["madrid"]) cancela event de Barcelona
+→ 403 Forbidden ✓
+
+# Test App Config (Dashboard)
+
+# 5. Tenant FitMax configura provider en /events
+PUT /api/settings/app-config?app=dashboard (como admin de FitMax)
+{
+  "routes": [
+    { "id": "events", "path": "/events", "allowedRoles": ["admin", "employee", "provider"], ... }
+  ]
+}
+
+# 6. Provider de FitMax
+Login como provider en FitMax Dashboard
+→ Navbar muestra /events ✓
+
+# 7. Provider de otro tenant
+Login como provider en OtroTenant Dashboard
+→ Navbar NO muestra /events (usa defaults) ✓
+
+# Test App Config (WebApp)
+
+# 8. Tenant FitMax añade ruta /promotions para clientes
+PUT /api/settings/app-config?app=webapp (como admin de FitMax)
+{
+  "routes": [
+    { "id": "promotions", "path": "/promotions", "allowedRoles": ["client"], ... }
+  ]
+}
+
+# 9. Client de FitMax
+Login como client en FitMax WebApp
+→ Navbar muestra /promotions ✓
 ```
+````
 
 ---
 
 ## Resumen de Hitos
 
-| Hito | Objetivo | Entregables Clave |
-|------|----------|-------------------|
-| **1** | Autorización básica | useAuthorization, Can, middleware, @Roles |
-| **2** | Organizations | CRUD orgs, JWT Lambda, OrganizationSwitcher |
-| **3** | Cerbos + Config | CerbosGuard, policies, dashboard_config |
+| Hito | Concepto | Objetivo | Entregables Clave |
+|------|----------|----------|-------------------|
+| **1A** | ROL | Qué ES el usuario | role_templates, tenant_roles, sync FusionAuth |
+| **1B** | ACCESO | A qué apps entra | middleware, <Can />, @Roles, /unauthorized |
+| **2** | SCOPE | En qué ámbito | organizations, JWT Lambda, OrganizationSwitcher |
+| **3** | PERMISO | Qué puede hacer | Cerbos, policies, @CheckPermission, app_configs |
 
 ## Dependencias
 
 ```
-HITO 1 (Roles UI)
+┌──────────┐
+│ HITO 1A  │  ROL (Templates)
+│          │  Define qué roles existen
+└────┬─────┘
      │
      ▼
-HITO 2 (Organizations)
+┌──────────┐
+│ HITO 1B  │  ACCESO (Apps)
+│          │  Control de acceso a apps
+└────┬─────┘
      │
      ▼
-HITO 3 (Cerbos + Config)
+┌──────────┐
+│ HITO 2   │  SCOPE (Organizations)
+│          │  Filtrado por sede
+└────┬─────┘
+     │
+     ▼
+┌──────────┐
+│ HITO 3   │  PERMISO (Cerbos)
+│          │  Permisos granulares
+└──────────┘
 ```
 
 **Cada hito es independientemente testeable y deployable.**

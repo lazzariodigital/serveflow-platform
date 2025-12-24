@@ -1,0 +1,43 @@
+{
+  "_comment": "POST /api/admin/tenants - Crear un nuevo tenant",
+  "_url": "http://localhost:3100/api/admin/tenants",
+  "_method": "POST",
+  "_headers": {
+    "Content-Type": "application/json"
+  },
+  "_note": "Este endpoint está marcado como @Public() para facilitar testing. En producción debería requerir superadmin.",
+  "request": {
+    "slug": "gimnasio-fitmax",
+    "name": "Gimnasio FitMax",
+    "plan": "enterprise",
+    "branding": {
+      "appName": "FitMax"
+    },
+    "settings": {
+      "locale": "es-ES",
+      "timezone": "Europe/Madrid",
+      "currency": "EUR"
+    }
+  },
+  "_expected_response": {
+    "data": {
+      "slug": "gimnasio-fitmax",
+      "name": "Gimnasio FitMax",
+      "plan": "enterprise",
+      "status": "active",
+      "fusionauthTenantId": "<uuid>",
+      "fusionauthApplications": {
+        "dashboard": { "id": "<uuid>", "name": "Gimnasio FitMax Dashboard" },
+        "webapp": { "id": "<uuid>", "name": "Gimnasio FitMax WebApp" }
+      },
+      "roles": [
+        { "slug": "admin", "name": "Administrador", "allowedApps": ["dashboard"] },
+        { "slug": "employee", "name": "Empleado", "allowedApps": ["dashboard"] },
+        { "slug": "provider", "name": "Proveedor", "allowedApps": ["webapp"] },
+        { "slug": "client", "name": "Cliente", "allowedApps": ["webapp"] }
+      ]
+    },
+    "message": "Tenant created successfully"
+  },
+  "_next_step": "02-create-organizations.json"
+}

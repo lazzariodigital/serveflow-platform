@@ -1,30 +1,29 @@
 'use client';
 
-import type { CSSObject } from '@mui/material/styles';
 import type { Breakpoint, SxProps, Theme } from '@mui/material/styles';
-import { Main, VerticalDivider } from './main';
 import { dashboardLayoutVars, dashboardNavColorVars } from './css-vars';
+import { Main, VerticalDivider } from './main';
 
-import { AccountDrawer } from '../components/account-drawer';
 import Box from '@mui/material/Box';
-import { HeaderSection } from '../core/header-section';
-import { LanguagePopover } from '../components/language-popover';
-import { LayoutSection } from '../core/layout-section';
+import type { CSSObject } from '@mui/material/styles';
+import { useTheme } from '@mui/material/styles';
 import { Logo } from '../../components/logo';
-import { MenuButton } from '../components/menu-button';
-import { NavHorizontal } from './nav-horizontal';
-import { NavMobile } from './nav-mobile';
 import type { NavSectionProps } from '../../components/nav-section';
-import { NavVertical } from './nav-vertical';
+import { useSettingsContext } from '../../components/settings';
+import { useBoolean } from '../../hooks/use-boolean';
+import { AccountDrawer } from '../components/account-drawer';
+import { LanguagePopover } from '../components/language-popover';
+import { MenuButton } from '../components/menu-button';
 import { NotificationsDrawer } from '../components/notifications-drawer';
 import { SettingsButton } from '../components/settings-button';
 import { _account } from '../config-nav-account';
 import { navData as defaultNavData } from '../config-nav-dashboard';
-import { iconButtonClasses } from '@mui/material/IconButton';
 import { layoutClasses } from '../core';
-import { useBoolean } from '../../hooks/use-boolean';
-import { useSettingsContext } from '../../components/settings';
-import { useTheme } from '@mui/material/styles';
+import { HeaderSection } from '../core/header-section';
+import { LayoutSection } from '../core/layout-section';
+import { NavHorizontal } from './nav-horizontal';
+import { NavMobile } from './nav-mobile';
+import { NavVertical } from './nav-vertical';
 
 // ----------------------------------------------------------------------
 
@@ -200,6 +199,8 @@ export function DashboardLayout({
                     }}
                   />
                 )}
+
+                 {slots?.beforeAccount}
               </>
             ),
             rightArea: (
@@ -220,7 +221,7 @@ export function DashboardLayout({
                 {/* -- Settings button -- */}
                 {!slots?.hideSettings && <SettingsButton />}
                 {/* -- Custom slot before account -- */}
-                {slots?.beforeAccount}
+               
                 {/* -- Account drawer -- */}
                 <AccountDrawer data={accountData} user={user} onSignOut={onSignOut} />
                 {/* -- Custom header right slot -- */}

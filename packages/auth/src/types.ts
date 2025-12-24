@@ -59,7 +59,13 @@ export interface FusionAuthJwtPayload {
   tid?: string;          // Tenant ID (if using multi-tenant)
 
   // Custom claims (via JWT Populate Lambda)
-  tenantId?: string;     // Serveflow tenant ID
+  tenantId?: string;         // Serveflow tenant ID
+  tenantSlug?: string;       // Serveflow tenant slug
+
+  // Organization claims (via JWT Populate Lambda)
+  // Empty array means access to ALL organizations
+  organizationIds?: string[];
+  primaryOrganizationId?: string;
 }
 
 /**
@@ -83,7 +89,11 @@ export interface AuthenticatedUser {
   lastName?: string;
   imageUrl?: string;
   tenantId: string;
+  tenantSlug?: string;
   roles: string[];
+  // Organization access (empty array = access to ALL organizations)
+  organizationIds: string[];
+  primaryOrganizationId?: string;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -95,7 +105,11 @@ export interface AuthRequest extends Request {
   auth: {
     userId: string;
     tenantId: string;
+    tenantSlug?: string;
     roles: string[];
+    // Organization access (empty array = access to ALL organizations)
+    organizationIds: string[];
+    primaryOrganizationId?: string;
   };
 }
 
@@ -145,6 +159,33 @@ export interface CreateFusionAuthUserInput {
   roles?: string[];
   sendSetPasswordEmail?: boolean;
   data?: Record<string, unknown>;
+}
+
+/**
+ * Input for creating a user with multiple application registrations.
+ * According to 03-PERMISOS.md section 5.1:
+ * - user.data.roles: All roles the user has
+ * - user.data.organizationIds: All organizations
+ * - registrations[]: One per app with subset of roles allowed in that app
+ */
+export interface CreateFusionAuthUserWithAppsInput {
+  email: string;
+  password?: string;
+  firstName?: string;
+  lastName?: string;
+  tenantId: string;
+  tenantSlug: string;
+  // All roles the user has (stored in user.data.roles)
+  roles: string[];
+  // Organization IDs (stored in user.data.organizationIds)
+  organizationIds?: string[];
+  primaryOrganizationId?: string;
+  // Registrations per app
+  registrations: {
+    applicationId: string;
+    roles: string[]; // Subset of roles allowed in this app
+  }[];
+  sendSetPasswordEmail?: boolean;
 }
 
 export interface UpdateFusionAuthUserInput {

@@ -79,6 +79,11 @@ export class FusionAuthGuard implements CanActivate {
       // - applicationId: Can be used to identify the Serveflow tenant
       const tenantId = decoded.tenantId || decoded.tid || decoded.applicationId;
 
+      // Organization IDs from JWT (added via JWT Populate Lambda)
+      // Empty array means access to ALL organizations
+      const organizationIds = decoded.organizationIds || [];
+      const primaryOrganizationId = decoded.primaryOrganizationId;
+
       // Build authenticated user object
       const authenticatedUser: AuthenticatedUser = {
         fusionauthUserId: decoded.sub,
@@ -87,7 +92,10 @@ export class FusionAuthGuard implements CanActivate {
         lastName: decoded.family_name,
         imageUrl: decoded.picture,
         tenantId: tenantId,
+        tenantSlug: decoded.tenantSlug,
         roles: decoded.roles || [],
+        organizationIds,
+        primaryOrganizationId,
       };
 
       // Inject auth info into request
@@ -95,7 +103,10 @@ export class FusionAuthGuard implements CanActivate {
       request.auth = {
         userId: decoded.sub,
         tenantId: tenantId,
+        tenantSlug: decoded.tenantSlug,
         roles: decoded.roles || [],
+        organizationIds,
+        primaryOrganizationId,
       };
 
       // Check if tenant is required

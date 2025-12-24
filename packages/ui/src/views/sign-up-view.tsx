@@ -13,6 +13,7 @@ import { FormHead } from '../components/form-head';
 import { FormDivider } from '../components/form-divider';
 import { FormSocials } from '../components/form-socials';
 import { useFusionAuth } from '../hooks/use-fusionauth';
+import { useTenant } from '@serveflow/tenants/react';
 
 // ----------------------------------------------------------------------
 
@@ -26,14 +27,32 @@ interface SignUpFormData {
 export type SignUpViewProps = {
   signInPath?: string;
   redirectPath?: string;
+  /**
+   * Which app this sign-up is for - determines which FusionAuth application ID to use.
+   * - 'dashboard': Uses tenant.fusionauthApplications.dashboard.id
+   * - 'webapp': Uses tenant.fusionauthApplications.webapp.id
+   * @default 'dashboard'
+   */
+  appType?: 'dashboard' | 'webapp';
 };
 
 export function SignUpView({
   signInPath = '/sign-in',
   redirectPath = '/',
+  appType = 'dashboard',
 }: SignUpViewProps) {
   const router = useRouter();
-  const { signUp, loginWithGoogle, isLoading } = useFusionAuth();
+  const { tenant } = useTenant();
+
+  // Get the correct applicationId based on appType
+  const applicationId = appType === 'webapp'
+    ? tenant?.fusionauthApplications?.webapp?.id
+    : tenant?.fusionauthApplications?.dashboard?.id;
+
+  const { signUp, loginWithGoogle, isLoading } = useFusionAuth({
+    applicationId,
+    tenantId: tenant?.fusionauthTenantId,
+  });
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
@@ -51,11 +70,17 @@ export function SignUpView({
     setSuccessMsg('');
 
     try {
+      // Assign default role based on appType:
+      // - webapp: 'client' (default role for self-registration per 03-PERMISOS.md)
+      // - dashboard: no default role (admin creates users with specific roles)
+      const defaultRoles = appType === 'webapp' ? ['client'] : [];
+
       const result = await signUp({
         email: data.email,
         password: data.password,
         firstName: data.firstName,
         lastName: data.lastName,
+        roles: defaultRoles,
       });
 
       // If signup returns token (auto-login), redirect immediately

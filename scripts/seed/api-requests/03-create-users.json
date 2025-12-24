@@ -1,0 +1,140 @@
+{
+  "_comment": "POST /api/users - Crear usuarios del tenant",
+  "_url": "http://gimnasio-fitmax.localhost:3000/api/users",
+  "_method": "POST",
+  "_headers": {
+    "Content-Type": "application/json"
+  },
+  "_note": "Este endpoint está marcado como @Public() para facilitar testing. Los organizationIds deben ser los _id de MongoDB (no slugs).",
+  "_prerequisite": "Ejecutar 02-create-organizations.json primero y anotar los IDs de las organizaciones.",
+
+  "_organization_ids_reference": {
+    "_comment": "Reemplazar con los _id reales de MongoDB después de crear las organizaciones",
+    "madrid-centro": "<org_id_1>",
+    "madrid-norte": "<org_id_2>",
+    "madrid-sur": "<org_id_3>",
+    "barcelona-eixample": "<org_id_4>",
+    "valencia-centro": "<org_id_5>"
+  },
+
+  "users": [
+    {
+      "_comment": "Usuario 1: Admin con acceso a TODAS las organizaciones",
+      "_roles_explanation": "organizationIds: [] significa acceso total a todas las sedes",
+      "request": {
+        "email": "admin@fitmax.es",
+        "password": "Test1234!",
+        "firstName": "Carlos",
+        "lastName": "López",
+        "roles": ["admin"],
+        "organizationIds": []
+      },
+      "_expected_access": {
+        "app": "dashboard",
+        "organizations": "ALL (admin with empty organizationIds)",
+        "url": "http://gimnasio-fitmax.localhost:4200"
+      }
+    },
+    {
+      "_comment": "Usuario 2: Empleado con acceso solo a sedes de Madrid",
+      "request": {
+        "email": "empleado.madrid@fitmax.es",
+        "password": "Test1234!",
+        "firstName": "Juan",
+        "lastName": "García",
+        "roles": ["employee"],
+        "organizationIds": ["<org_id_madrid_centro>", "<org_id_madrid_norte>", "<org_id_madrid_sur>"],
+        "primaryOrganizationId": "<org_id_madrid_centro>"
+      },
+      "_expected_access": {
+        "app": "dashboard",
+        "organizations": ["madrid-centro", "madrid-norte", "madrid-sur"],
+        "url": "http://gimnasio-fitmax.localhost:4200"
+      }
+    },
+    {
+      "_comment": "Usuario 3: Empleado con acceso solo a Barcelona",
+      "request": {
+        "email": "empleado.barcelona@fitmax.es",
+        "password": "Test1234!",
+        "firstName": "Anna",
+        "lastName": "Puig",
+        "roles": ["employee"],
+        "organizationIds": ["<org_id_barcelona_eixample>"],
+        "primaryOrganizationId": "<org_id_barcelona_eixample>"
+      },
+      "_expected_access": {
+        "app": "dashboard",
+        "organizations": ["barcelona-eixample"],
+        "url": "http://gimnasio-fitmax.localhost:4200"
+      }
+    },
+    {
+      "_comment": "Usuario 4: Entrenador (provider) con acceso a Madrid Centro y Norte",
+      "request": {
+        "email": "trainer@fitmax.es",
+        "password": "Test1234!",
+        "firstName": "Pedro",
+        "lastName": "Martínez",
+        "roles": ["provider"],
+        "organizationIds": ["<org_id_madrid_centro>", "<org_id_madrid_norte>"],
+        "primaryOrganizationId": "<org_id_madrid_centro>"
+      },
+      "_expected_access": {
+        "app": "webapp",
+        "organizations": ["madrid-centro", "madrid-norte"],
+        "url": "http://gimnasio-fitmax.app.localhost:4201"
+      }
+    },
+    {
+      "_comment": "Usuario 5: Cliente premium con acceso a TODAS las sedes",
+      "_roles_explanation": "organizationIds: [] permite reservar en cualquier sede",
+      "request": {
+        "email": "cliente.premium@fitmax.es",
+        "password": "Test1234!",
+        "firstName": "María",
+        "lastName": "Fernández",
+        "roles": ["client"],
+        "organizationIds": []
+      },
+      "_expected_access": {
+        "app": "webapp",
+        "organizations": "ALL (premium client)",
+        "url": "http://gimnasio-fitmax.app.localhost:4201"
+      }
+    },
+    {
+      "_comment": "Usuario 6: Cliente regular con acceso solo a Madrid Centro",
+      "request": {
+        "email": "cliente@fitmax.es",
+        "password": "Test1234!",
+        "firstName": "Luis",
+        "lastName": "Sánchez",
+        "roles": ["client"],
+        "organizationIds": ["<org_id_madrid_centro>"],
+        "primaryOrganizationId": "<org_id_madrid_centro>"
+      },
+      "_expected_access": {
+        "app": "webapp",
+        "organizations": ["madrid-centro"],
+        "url": "http://gimnasio-fitmax.app.localhost:4201"
+      }
+    }
+  ],
+
+  "_expected_response_per_user": {
+    "success": true,
+    "data": {
+      "fusionauthUserId": "<uuid>",
+      "email": "admin@fitmax.es",
+      "firstName": "Carlos",
+      "lastName": "López",
+      "status": "active",
+      "isVerified": true,
+      "organizationIds": []
+    },
+    "message": "User created successfully"
+  },
+
+  "_next_step": "04-login.json"
+}

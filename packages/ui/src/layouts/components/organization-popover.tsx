@@ -1,20 +1,20 @@
 'use client';
 
 import { CustomPopover, usePopover } from '../../components/custom-popover';
-import { useCallback } from 'react';
 
 import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
-import ButtonBase from '@mui/material/ButtonBase';
 import type { ButtonBaseProps } from '@mui/material/ButtonBase';
+import ButtonBase from '@mui/material/ButtonBase';
 import Divider from '@mui/material/Divider';
-import { Iconify } from '../../components/iconify';
-import { Label } from '../../components/label';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import MenuItem from '@mui/material/MenuItem';
 import MenuList from '@mui/material/MenuList';
 import Typography from '@mui/material/Typography';
+import { useCallback } from 'react';
+import { Iconify } from '../../components/iconify';
+import { Label } from '../../components/label';
 
 // ----------------------------------------------------------------------
 
@@ -26,26 +26,20 @@ export interface Organization {
   address?: string;
 }
 
-export type ScopeType = 'tenant' | 'organization' | 'multi-organization';
+export type ScopeType = 'tenant' | 'organization';
 
 export type OrganizationPopoverProps = ButtonBaseProps & {
-  /** Current scope type */
+  /** Current scope type: 'tenant' (all user's orgs) or 'organization' (single org) */
   scopeType?: ScopeType;
   /** Currently selected organization ID */
   currentOrganizationId?: string | null;
-  /** Selected organization IDs for multi-organization scope */
-  selectedOrganizationIds?: string[];
-  /** Available organizations to select from */
+  /** Available organizations to select from (already filtered by user access) */
   organizations?: Organization[];
   /** Whether organizations are loading */
   loading?: boolean;
-  /** Whether user has tenant-wide access */
-  hasTenantAccess?: boolean;
   /** Callback when an organization is selected */
   onSelectOrganization?: (org: Organization) => void;
-  /** Callback when tenant scope is selected */
-  onSelectTenantScope?: () => void;
-  /** Callback when all organizations are selected */
+  /** Callback when "All Organizations" is selected */
   onSelectAllOrganizations?: () => void;
 };
 
@@ -53,21 +47,20 @@ export function OrganizationPopover({
   sx,
   scopeType = 'organization',
   currentOrganizationId,
-  selectedOrganizationIds = [],
   organizations = [],
   loading = false,
-  hasTenantAccess = false,
   onSelectOrganization,
-  onSelectTenantScope,
   onSelectAllOrganizations,
   ...other
 }: OrganizationPopoverProps) {
   const popover = usePopover();
-
   const mediaQuery = 'sm';
 
   // Get current organization details
   const currentOrganization = organizations.find((org) => org.id === currentOrganizationId);
+
+  // Show "All Organizations" option if user has access to multiple orgs
+  const showAllOption = organizations.length > 1;
 
   const handleSelectOrganization = useCallback(
     (org: Organization) => {
@@ -76,11 +69,6 @@ export function OrganizationPopover({
     },
     [onSelectOrganization, popover]
   );
-
-  const handleSelectTenantScope = useCallback(() => {
-    onSelectTenantScope?.();
-    popover.onClose();
-  }, [onSelectTenantScope, popover]);
 
   const handleSelectAllOrganizations = useCallback(() => {
     onSelectAllOrganizations?.();
@@ -117,38 +105,10 @@ export function OrganizationPopover({
           <Typography
             variant="subtitle2"
             color="text.primary"
-            sx={{
-              display: { xs: 'none', [mediaQuery]: 'inline-flex' },
-            }}
+            sx={{ display: { xs: 'none', [mediaQuery]: 'inline-flex' } }}
           >
             All Organizations
           </Typography>
-        </>
-      );
-    }
-
-    if (scopeType === 'multi-organization') {
-      return (
-        <>
-          <Iconify icon="solar:buildings-bold-duotone" sx={{ width: 24, height: 24 }} />
-          <Box
-            component="span"
-            sx={{
-              typography: 'subtitle2',
-              display: { xs: 'none', [mediaQuery]: 'inline-flex' },
-            }}
-          >
-            {selectedOrganizationIds.length} Organizations
-          </Box>
-          <Label
-            color="info"
-            sx={{
-              height: 22,
-              display: { xs: 'none', [mediaQuery]: 'inline-flex' },
-            }}
-          >
-            Multi
-          </Label>
         </>
       );
     }
@@ -220,54 +180,33 @@ export function OrganizationPopover({
         slotProps={{ arrow: { placement: 'top-left' } }}
       >
         <MenuList sx={{ width: 280, p: 1 }}>
-          {/* Tenant scope option (if user has access) */}
-          {hasTenantAccess && (
-            <>
-              <MenuItem
-                selected={scopeType === 'tenant'}
-                onClick={handleSelectTenantScope}
-                sx={{ height: 48, borderRadius: 1 }}
-              >
-                <ListItemIcon sx={{ mr: 0 }}>
-                  <Iconify icon="solar:buildings-bold-duotone" sx={{ width: 24, height: 24 }} />
-                </ListItemIcon>
-                <ListItemText
-                  primary="All Organizations"
-                  secondary="Full tenant access"
-                  primaryTypographyProps={{ typography: 'body2' }}
-                  secondaryTypographyProps={{ typography: 'caption' }}
-                />
-              </MenuItem>
-              <Divider sx={{ my: 0.5 }} />
-            </>
-          )}
-
-          {/* Multi-organization option (if user has access to multiple) */}
-          {organizations.length > 1 && (
-            <>
-              <MenuItem
-                selected={scopeType === 'multi-organization'}
-                onClick={handleSelectAllOrganizations}
-                sx={{ height: 48, borderRadius: 1 }}
-              >
-                <ListItemIcon>
-                  <Iconify icon="solar:buildings-bold-duotone" sx={{ width: 24, height: 24 }} />
-                </ListItemIcon>
-                <ListItemText
-                  primary="Multiple Organizations"
-                  secondary={`${organizations.length} organizations`}
-                  primaryTypographyProps={{ typography: 'body2' }}
-                  secondaryTypographyProps={{ typography: 'caption' }}
-                />
-              </MenuItem>
-              <Divider sx={{ my: 0.5 }} />
-            </>
-          )}
+          {/* "All Organizations" option (only if user has access to multiple orgs) */}
+          {showAllOption && [
+            <MenuItem
+              key="all-orgs"
+              selected={scopeType === 'tenant'}
+              onClick={handleSelectAllOrganizations}
+              sx={{ height: 48, borderRadius: 1 }}
+            >
+              <ListItemIcon sx={{ mr: 0 }}>
+                <Iconify icon="solar:buildings-bold-duotone" sx={{ width: 24, height: 24 }} />
+              </ListItemIcon>
+              <ListItemText
+                primary="All Organizations"
+                secondary={`View all ${organizations.length} organizations`}
+                primaryTypographyProps={{ typography: 'body2' }}
+                secondaryTypographyProps={{ typography: 'caption' }}
+              />
+            </MenuItem>,
+            <Divider key="all-divider" sx={{ my: 0.5 }} />,
+          ]}
 
           {/* Individual organizations */}
-          <Typography variant="caption" sx={{ px: 1.5, py: 0.5, color: 'text.secondary' }}>
-            Organizations
-          </Typography>
+          {organizations.length > 0 && (
+            <Typography variant="caption" sx={{ px: 1.5, py: 0.5, color: 'text.secondary' }}>
+              Organizations
+            </Typography>
+          )}
 
           {organizations.map((org) => (
             <MenuItem

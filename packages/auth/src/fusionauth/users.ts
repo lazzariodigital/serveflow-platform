@@ -1,5 +1,6 @@
 import type {
   CreateFusionAuthUserInput,
+  CreateFusionAuthUserWithAppsInput,
   FusionAuthUser,
   ListFusionAuthUsersParams,
   UpdateFusionAuthUserInput,
@@ -72,6 +73,109 @@ export async function createFusionAuthUser(
   }
 
   return mapFusionAuthUser(response.response.user);
+}
+
+/**
+ * Creates a user in FusionAuth with multiple application registrations.
+ *
+ * According to 03-PERMISOS.md section 5.1:
+ * 1. Create user with user.data containing all roles and organizationIds
+ * 2. Create registrations for each app with subset of roles allowed in that app
+ *
+ * @param input - User creation data with multiple registrations
+ * @returns Created FusionAuth user with all registrations
+ */
+export async function createFusionAuthUserWithApps(
+  input: CreateFusionAuthUserWithAppsInput
+): Promise<FusionAuthUser> {
+  const client = getFusionAuthClientForTenant(input.tenantId);
+
+  if (input.registrations.length === 0) {
+    throw new Error('At least one registration is required');
+  }
+
+  // First registration is created with the user
+  const firstReg = input.registrations[0];
+
+  console.log('[FusionAuth] Creating user with multiple apps:', {
+    email: input.email,
+    roles: input.roles,
+    registrations: input.registrations.map((r) => ({
+      appId: r.applicationId,
+      roles: r.roles,
+    })),
+  });
+
+  // Create user with first registration
+  const response = await client.register(null as unknown as string, {
+    user: {
+      email: input.email,
+      password: input.password,
+      firstName: input.firstName,
+      lastName: input.lastName,
+      fullName:
+        input.firstName && input.lastName
+          ? `${input.firstName} ${input.lastName}`
+          : undefined,
+      tenantId: input.tenantId,
+      // Store all roles and org info in user.data
+      data: {
+        serveflowTenantSlug: input.tenantSlug,
+        roles: input.roles,
+        organizationIds: input.organizationIds || [],
+        primaryOrganizationId: input.primaryOrganizationId,
+      },
+    },
+    registration: {
+      applicationId: firstReg.applicationId,
+      roles: firstReg.roles,
+    },
+    sendSetPasswordEmail: input.sendSetPasswordEmail ?? false,
+    skipVerification: false,
+  });
+
+  if (!response.wasSuccessful()) {
+    const errorMessage =
+      response.exception?.message ||
+      JSON.stringify(response.exception) ||
+      'Failed to create user in FusionAuth';
+    throw new Error(errorMessage);
+  }
+
+  if (!response.response.user?.id) {
+    throw new Error('User was not returned from FusionAuth');
+  }
+
+  const userId = response.response.user.id;
+
+  // Add additional registrations
+  for (let i = 1; i < input.registrations.length; i++) {
+    const reg = input.registrations[i];
+    console.log(`[FusionAuth] Adding registration for app ${reg.applicationId}`);
+
+    const regResponse = await client.register(userId, {
+      registration: {
+        applicationId: reg.applicationId,
+        roles: reg.roles,
+      },
+    });
+
+    if (!regResponse.wasSuccessful()) {
+      console.error(
+        `[FusionAuth] Failed to add registration for app ${reg.applicationId}:`,
+        regResponse.exception
+      );
+      // Continue with other registrations, don't fail completely
+    }
+  }
+
+  // Fetch the updated user with all registrations
+  const updatedUser = await getFusionAuthUser(userId);
+  if (!updatedUser) {
+    throw new Error('Failed to retrieve user after creating registrations');
+  }
+
+  return updatedUser;
 }
 
 /**
@@ -335,6 +439,176 @@ export async function removeUserRoles(
       response.exception?.message || 'Failed to remove roles in FusionAuth'
     );
   }
+}
+
+// ════════════════════════════════════════════════════════════════
+// Organization Management
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Gets the organization IDs for a user.
+ *
+ * @param userId - FusionAuth user ID
+ * @returns Array of organization IDs (empty array means access to all)
+ */
+export async function getUserOrganizationIds(
+  userId: string
+): Promise<string[]> {
+  const user = await getFusionAuthUser(userId);
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  return (user.data?.['organizationIds'] as string[]) || [];
+}
+
+/**
+ * Sets the organization IDs for a user.
+ * This replaces all existing organization IDs.
+ *
+ * @param userId - FusionAuth user ID
+ * @param organizationIds - Array of organization IDs (empty = access to all)
+ * @returns Updated FusionAuth user
+ *
+ * @example
+ * ```typescript
+ * // Grant access to specific organizations
+ * await setUserOrganizations(userId, ['org-1', 'org-2']);
+ *
+ * // Grant access to ALL organizations
+ * await setUserOrganizations(userId, []);
+ * ```
+ */
+export async function setUserOrganizations(
+  userId: string,
+  organizationIds: string[]
+): Promise<FusionAuthUser> {
+  const user = await getFusionAuthUser(userId);
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  const currentData = (user.data || {}) as Record<string, unknown>;
+
+  return updateFusionAuthUser(userId, {
+    data: {
+      ...currentData,
+      organizationIds,
+    },
+  });
+}
+
+/**
+ * Assigns a user to an organization.
+ * Adds the organization ID to the user's organizationIds array.
+ *
+ * @param userId - FusionAuth user ID
+ * @param organizationId - Organization ID to add
+ * @returns Updated FusionAuth user
+ */
+export async function assignUserToOrganization(
+  userId: string,
+  organizationId: string
+): Promise<FusionAuthUser> {
+  const user = await getFusionAuthUser(userId);
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  const currentOrgIds = (user.data?.['organizationIds'] as string[]) || [];
+
+  // If already assigned, return early
+  if (currentOrgIds.includes(organizationId)) {
+    return user;
+  }
+
+  const newOrgIds = [...currentOrgIds, organizationId];
+  const currentData = (user.data || {}) as Record<string, unknown>;
+
+  return updateFusionAuthUser(userId, {
+    data: {
+      ...currentData,
+      organizationIds: newOrgIds,
+    },
+  });
+}
+
+/**
+ * Removes a user from an organization.
+ * Removes the organization ID from the user's organizationIds array.
+ *
+ * @param userId - FusionAuth user ID
+ * @param organizationId - Organization ID to remove
+ * @returns Updated FusionAuth user
+ */
+export async function removeUserFromOrganization(
+  userId: string,
+  organizationId: string
+): Promise<FusionAuthUser> {
+  const user = await getFusionAuthUser(userId);
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  const currentOrgIds = (user.data?.['organizationIds'] as string[]) || [];
+  const newOrgIds = currentOrgIds.filter((id) => id !== organizationId);
+
+  const currentData = (user.data || {}) as Record<string, unknown>;
+
+  return updateFusionAuthUser(userId, {
+    data: {
+      ...currentData,
+      organizationIds: newOrgIds,
+    },
+  });
+}
+
+/**
+ * Sets the primary organization for a user.
+ *
+ * @param userId - FusionAuth user ID
+ * @param primaryOrganizationId - Primary organization ID (or undefined to clear)
+ * @returns Updated FusionAuth user
+ */
+export async function setUserPrimaryOrganization(
+  userId: string,
+  primaryOrganizationId: string | undefined
+): Promise<FusionAuthUser> {
+  const user = await getFusionAuthUser(userId);
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  const currentData = (user.data || {}) as Record<string, unknown>;
+
+  return updateFusionAuthUser(userId, {
+    data: {
+      ...currentData,
+      primaryOrganizationId,
+    },
+  });
+}
+
+/**
+ * Checks if a user has access to a specific organization.
+ * Empty organizationIds array means access to ALL organizations.
+ *
+ * @param userId - FusionAuth user ID
+ * @param organizationId - Organization ID to check
+ * @returns true if user has access
+ */
+export async function userHasOrganizationAccess(
+  userId: string,
+  organizationId: string
+): Promise<boolean> {
+  const orgIds = await getUserOrganizationIds(userId);
+
+  // Empty array = access to all
+  if (orgIds.length === 0) {
+    return true;
+  }
+
+  return orgIds.includes(organizationId);
 }
 
 // ════════════════════════════════════════════════════════════════

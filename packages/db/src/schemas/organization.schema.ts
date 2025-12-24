@@ -1,35 +1,41 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument } from 'mongoose';
-// Note: Organization core schema has a different MVP structure with schedule/location.
-// This Mongoose schema is a simpler current implementation.
 
 export type OrganizationDocument = HydratedDocument<Organization>;
 
 /**
- * Organization Mongoose Schema
+ * Organization Mongoose Schema (Sedes/Sucursales)
  * Location: db_tenant_{slug}.organizations
  *
- * Note: Structure differs from @serveflow/core OrganizationMVP for practical reasons.
- * Core schema defines the ideal/target structure, Mongoose reflects current implementation.
+ * Represents a physical location or branch of the tenant's business.
+ * Users can be assigned to one or more organizations via organizationIds.
+ *
+ * Key principle: organizationIds: [] means access to ALL organizations.
  */
 @Schema({
   collection: 'organizations',
   timestamps: true,
 })
 export class Organization {
+  // ════════════════════════════════════════════════════════════════
+  // REQUIRED - Campos obligatorios
+  // ════════════════════════════════════════════════════════════════
+
+  @Prop({ required: true, unique: true, index: true })
+  slug!: string;
+
   @Prop({ required: true })
   name!: string;
 
+  @Prop({ required: true, default: true, index: true })
+  isActive!: boolean;
+
+  // ════════════════════════════════════════════════════════════════
+  // OPTIONAL - Campos opcionales
+  // ════════════════════════════════════════════════════════════════
+
   @Prop()
   description?: string;
-
-  @Prop({
-    required: true,
-    enum: ['active', 'inactive', 'archived'],
-    default: 'active',
-    index: true,
-  })
-  status!: string;
 
   @Prop({ type: Object })
   address?: {
@@ -38,23 +44,41 @@ export class Organization {
     state?: string;
     postalCode?: string;
     country?: string;
+    coordinates?: {
+      lat: number;
+      lng: number;
+    };
   };
-
-  @Prop()
-  phone?: string;
-
-  @Prop()
-  email?: string;
 
   @Prop({ type: Object })
-  settings?: {
-    timezone: string;
-    locale: string;
-    workingHours?: Record<string, unknown>;
+  contact?: {
+    phone?: string;
+    email?: string;
   };
 
+  @Prop({
+    type: Object,
+    default: () => ({
+      timezone: 'Europe/Madrid',
+      currency: 'EUR',
+    }),
+  })
+  settings!: {
+    timezone: string;
+    currency: string;
+    businessHours?: Record<string, unknown>;
+  };
+
+  // Timestamps automáticos por { timestamps: true }
   createdAt!: Date;
   updatedAt!: Date;
 }
 
 export const OrganizationSchema = SchemaFactory.createForClass(Organization);
+
+// ════════════════════════════════════════════════════════════════
+// Índices adicionales
+// ════════════════════════════════════════════════════════════════
+
+OrganizationSchema.index({ isActive: 1, name: 1 });
+OrganizationSchema.index({ 'address.city': 1 }, { sparse: true });

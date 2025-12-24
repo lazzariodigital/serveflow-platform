@@ -88,6 +88,15 @@ export const TenantDatabaseSchema = z.object({
 });
 
 // ════════════════════════════════════════════════════════════════
+// FusionAuth Applications Schema
+// ════════════════════════════════════════════════════════════════
+
+export const FusionAuthApplicationsSchema = z.object({
+  dashboard: z.object({ id: z.string().min(1, 'Dashboard application ID is required') }),
+  webapp: z.object({ id: z.string().min(1, 'WebApp application ID is required') }),
+});
+
+// ════════════════════════════════════════════════════════════════
 // Auth Providers Schema (Social Login)
 // ════════════════════════════════════════════════════════════════
 
@@ -117,7 +126,7 @@ export const TenantMVPSchema = z.object({
     .regex(/^[a-z0-9-]+$/, 'Slug must be lowercase alphanumeric with hyphens'),
   name: z.string().min(1, 'Name is required'),
   fusionauthTenantId: z.string().min(1, 'FusionAuth Tenant ID is required'),
-  fusionauthApplicationId: z.string().min(1, 'FusionAuth Application ID is required'),
+  fusionauthApplications: FusionAuthApplicationsSchema,
   database: TenantDatabaseSchema,
   company: TenantCompanySchema,
   contact: ContactSchema.pick({ email: true, phone: true }),
@@ -140,7 +149,7 @@ export const CreateTenantInputSchema = z.object({
     .regex(/^[a-z0-9-]+$/, 'Slug must be lowercase alphanumeric with hyphens'),
   name: z.string().min(1, 'Name is required'),
   fusionauthTenantId: z.string().min(1, 'FusionAuth Tenant ID is required'),
-  fusionauthApplicationId: z.string().min(1, 'FusionAuth Application ID is required'),
+  fusionauthApplications: FusionAuthApplicationsSchema,
   ownerEmail: z.string().email('Invalid owner email'),
   company: TenantCompanySchema,
   contact: z.object({
@@ -216,8 +225,7 @@ export const CreateTenantRequestSchema = z.object({
     .max(50, 'Slug must be at most 50 characters')
     .regex(/^[a-z0-9-]+$/, 'Slug must be lowercase alphanumeric with hyphens'),
   name: z.string().min(1, 'Name is required'),
-  fusionauthTenantId: z.string().optional(),
-  fusionauthApplicationId: z.string().optional(),
+  // FusionAuth IDs are created automatically, not passed in request
   plan: z.enum(['free', 'starter', 'pro', 'enterprise']).optional().default('free'),
   branding: z.object({
     logoUrl: z.string().url().optional(),

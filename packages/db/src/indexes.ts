@@ -11,8 +11,9 @@ export async function createSystemIndexes(db: Db): Promise<void> {
     // Tenants collection
     db.collection('tenants').createIndex({ slug: 1 }, { unique: true }),
     db.collection('tenants').createIndex({ fusionauthTenantId: 1 }, { unique: true }),
-    db.collection('tenants').createIndex({ fusionauthApplicationId: 1 }, { unique: true }),
-    db.collection('tenants').createIndex({ 'company.taxId': 1 }, { unique: true }),
+    db.collection('tenants').createIndex({ 'fusionauthApplications.dashboard.id': 1 }, { unique: true }),
+    db.collection('tenants').createIndex({ 'fusionauthApplications.webapp.id': 1 }, { unique: true }),
+    db.collection('tenants').createIndex({ 'company.taxId': 1 }, { unique: true, sparse: true }),
     db.collection('tenants').createIndex({ 'contact.email': 1 }),
     db.collection('tenants').createIndex({ status: 1 }),
     db.collection('tenants').createIndex({ 'advancedSettings.customDomain': 1 }, { sparse: true }),
@@ -27,6 +28,11 @@ export async function createSystemIndexes(db: Db): Promise<void> {
 
     // Usage Metrics collection
     db.collection('usage_metrics').createIndex({ tenantId: 1, period: 1 }, { unique: true }),
+
+    // Role Templates collection
+    db.collection('role_templates').createIndex({ slug: 1 }, { unique: true }),
+    db.collection('role_templates').createIndex({ isSystemTemplate: 1 }),
+    db.collection('role_templates').createIndex({ sortOrder: 1 }),
   ]);
 
   console.log('[MongoDB] System database indexes created');
@@ -76,6 +82,15 @@ export async function createTenantIndexes(db: Db): Promise<void> {
 
     // AI Config collection (single document per tenant)
     db.collection('ai_config').createIndex({ _id: 1 }),
+
+    // Tenant Roles collection
+    db.collection('tenant_roles').createIndex({ slug: 1 }, { unique: true }),
+    db.collection('tenant_roles').createIndex({ templateSlug: 1 }),
+    db.collection('tenant_roles').createIndex({ isActive: 1, isDefault: 1 }),
+    db.collection('tenant_roles').createIndex({ isFromTemplate: 1 }),
+    db.collection('tenant_roles').createIndex({ isCustom: 1 }),
+    db.collection('tenant_roles').createIndex({ fusionauthRoleId: 1 }, { sparse: true }),
+    db.collection('tenant_roles').createIndex({ sortOrder: 1 }),
   ]);
 
   console.log(`[MongoDB] Tenant database indexes created for ${db.databaseName}`);
@@ -88,7 +103,7 @@ export async function createTenantIndexes(db: Db): Promise<void> {
 export async function recreateSystemIndexes(db: Db): Promise<void> {
   console.log('[MongoDB] Dropping existing system indexes...');
 
-  const collections = ['tenants', 'global_users', 'billing', 'usage_metrics'];
+  const collections = ['tenants', 'global_users', 'billing', 'usage_metrics', 'role_templates'];
   for (const collName of collections) {
     try {
       await db.collection(collName).dropIndexes();
@@ -103,7 +118,7 @@ export async function recreateSystemIndexes(db: Db): Promise<void> {
 export async function recreateTenantIndexes(db: Db): Promise<void> {
   console.log(`[MongoDB] Dropping existing tenant indexes for ${db.databaseName}...`);
 
-  const collections = ['organizations', 'users', 'memberships', 'services', 'resources', 'events', 'ai_config'];
+  const collections = ['organizations', 'users', 'memberships', 'services', 'resources', 'events', 'ai_config', 'tenant_roles'];
   for (const collName of collections) {
     try {
       await db.collection(collName).dropIndexes();

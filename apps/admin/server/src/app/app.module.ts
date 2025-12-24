@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { MongooseModule } from '@nestjs/mongoose';
 import { FusionAuthGuard } from '@serveflow/auth/server';
 import { env, SYSTEM_DB_NAME } from '@serveflow/config';
+import { RoleTemplatesModule } from '../role-templates/role-templates.module';
 import { TenantsModule } from '../tenants/tenants.module';
 import { UsersModule } from '../users/users.module';
 import { AppController } from './app.controller';
@@ -23,6 +24,7 @@ import { AppService } from './app.service';
       dbName: SYSTEM_DB_NAME,
     }),
     // Feature modules
+    RoleTemplatesModule,
     TenantsModule,
     UsersModule,
   ],

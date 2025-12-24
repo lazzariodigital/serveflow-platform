@@ -22,6 +22,22 @@ const nextConfig = {
   // - @serveflow/db/client        (pure MongoDB, no NestJS)
   // See: docs/v2/01-FUNDACION.md section 5.6
   // ════════════════════════════════════════════════════════════════
+
+  // ════════════════════════════════════════════════════════════════
+  // API PROXY
+  // ════════════════════════════════════════════════════════════════
+  // Proxy /api/* requests to the tenant-server (NestJS backend)
+  // This allows client-side fetch('/api/...') to reach the backend
+  // ════════════════════════════════════════════════════════════════
+  async rewrites() {
+    const tenantServerUrl = process.env.TENANT_SERVER_URL || 'http://localhost:3100';
+    return [
+      {
+        source: '/api/:path*',
+        destination: `${tenantServerUrl}/api/:path*`,
+      },
+    ];
+  },
 };
 
 const plugins = [

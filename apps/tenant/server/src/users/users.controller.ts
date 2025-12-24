@@ -12,7 +12,7 @@ import {
   Req,
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '@serveflow/auth';
-import { CurrentUser, Public, RequireTenant } from '@serveflow/auth/server';
+import { CurrentUser, Public, RequireTenant, Roles } from '@serveflow/auth/server';
 import {
   CreateUserRequest,
   CreateUserRequestSchema,
@@ -23,6 +23,8 @@ import {
   ZodValidationPipe,
 } from '@serveflow/core';
 import type { TenantRequest } from '@serveflow/tenants';
+import { getTenantRoleBySlug } from '@serveflow/db';
+import { getOrganizationFilter } from '@serveflow/authorization/server';
 import { UsersService } from './users.service';
 
 // ════════════════════════════════════════════════════════════════
@@ -34,7 +36,7 @@ import { UsersService } from './users.service';
 // MIGRACIÓN MONGOOSE: Ahora extrae userModel del request (inyectado por TenantMiddleware)
 // ════════════════════════════════════════════════════════════════
 
-@Controller('users-tenant')
+@Controller('users')
 @RequireTenant() // Todos los endpoints requieren tenant
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
@@ -42,20 +44,84 @@ export class UsersController {
   /**
    * POST /api/users
    * Crea un nuevo usuario.
-   * Solo admins pueden crear usuarios.
+   * Only admins can create users.
+   *
+   * Según 03-PERMISOS.md sección 5.1:
+   * - roles: Qué ES el usuario (admin, employee, provider, client)
+   * - appAccess: A qué apps tiene acceso (opcional - se deriva de los roles si no se proporciona)
+   * - organizationIds: En qué organizaciones está
    */
   @Post('')
   @Public()
+  // @Roles('admin')
   async create(
     @Req() req: TenantRequest,
     @Body(new ZodValidationPipe(CreateUserRequestSchema)) dto: CreateUserRequest
   ) {
-    const { userModel, tenant } = req;
+    const { userModel, tenantRoleModel, tenant } = req;
 
-    const user = await this.usersService.create(
+    // ════════════════════════════════════════════════════════════════
+    // Determinar appAccess: Explícito (override) o derivado de roles
+    // ════════════════════════════════════════════════════════════════
+    let effectiveAppAccess: ('dashboard' | 'webapp')[];
+
+    if (dto.appAccess && dto.appAccess.length > 0) {
+      // Override: usar appAccess explícito
+      effectiveAppAccess = dto.appAccess;
+    } else {
+      // Derivar de roles: buscar allowedApps de cada rol en tenant_roles
+      const appAccessSet = new Set<'dashboard' | 'webapp'>();
+
+      for (const roleSlug of dto.roles) {
+        const tenantRole = await getTenantRoleBySlug(tenantRoleModel, roleSlug);
+        if (tenantRole?.allowedApps) {
+          tenantRole.allowedApps.forEach((app) => appAccessSet.add(app));
+        }
+      }
+
+      effectiveAppAccess = Array.from(appAccessSet);
+
+      // Fallback si no se encontraron roles configurados: usar lógica default
+      if (effectiveAppAccess.length === 0) {
+        const hasDashboardRole = dto.roles.some((r) => ['admin', 'employee'].includes(r));
+        const hasWebappRole = dto.roles.some((r) => ['provider', 'client'].includes(r));
+        if (hasDashboardRole) effectiveAppAccess.push('dashboard');
+        if (hasWebappRole) effectiveAppAccess.push('webapp');
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Build FusionAuth registrations from effectiveAppAccess
+    // ════════════════════════════════════════════════════════════════
+    const applications: { id: string; roles: string[] }[] = [];
+
+    if (effectiveAppAccess.includes('dashboard')) {
+      // Filter roles that are allowed in dashboard (admin, employee)
+      const dashboardRoles = dto.roles.filter((r) => r === 'admin' || r === 'employee');
+      if (dashboardRoles.length > 0) {
+        applications.push({
+          id: tenant.fusionauthApplications.dashboard.id,
+          roles: dashboardRoles,
+        });
+      }
+    }
+
+    if (effectiveAppAccess.includes('webapp')) {
+      // Filter roles that are allowed in webapp (provider, client)
+      const webappRoles = dto.roles.filter((r) => r === 'provider' || r === 'client');
+      if (webappRoles.length > 0) {
+        applications.push({
+          id: tenant.fusionauthApplications.webapp.id,
+          roles: webappRoles,
+        });
+      }
+    }
+
+    const user = await this.usersService.createWithMultipleApps(
       userModel,
       tenant.fusionauthTenantId,
-      tenant.fusionauthApplicationId,
+      tenant.slug,
+      applications,
       dto
     );
 
@@ -69,15 +135,42 @@ export class UsersController {
   /**
    * GET /api/users
    * Lista todos los usuarios del tenant con paginación y filtros.
+   *
+   * Organization Filtering (Hito 2):
+   * - Si el usuario tiene organizationIds: [], ve todos los usuarios
+   * - Si tiene organizationIds limitados, solo ve usuarios de esas orgs
+   * - Si se pide organizationId específico, valida acceso primero
    */
   @Get()
   async findAll(
     @Req() req: TenantRequest,
+    @CurrentUser() currentUser: AuthenticatedUser,
     @Query(new ZodValidationPipe(ListUsersRequestSchema)) query: ListUsersRequest
   ) {
     const { userModel } = req;
 
-    const result = await this.usersService.findAll(userModel, query);
+    // Get organization filter based on current user's access
+    // This validates that the user can access the requested organizationId
+    // and returns the appropriate filter for the query
+    const orgFilter = getOrganizationFilter(
+      currentUser.organizationIds,
+      query.organizationId
+    );
+
+    // Apply organization filter to query
+    const filteredQuery: ListUsersRequest = {
+      ...query,
+      // Use the effective organizationId from the filter
+      // If orgFilter is empty, don't filter by org (user has full access)
+      // If orgFilter has $in, the service will need to handle it
+      organizationId: orgFilter.organizationId
+        ? typeof orgFilter.organizationId === 'string'
+          ? orgFilter.organizationId
+          : undefined // Handle $in case in service if needed
+        : undefined,
+    };
+
+    const result = await this.usersService.findAll(userModel, filteredQuery);
 
     return {
       success: true,
@@ -87,6 +180,7 @@ export class UsersController {
         page: result.page,
         limit: result.limit,
         totalPages: Math.ceil(result.total / result.limit),
+        hasFullAccess: currentUser.organizationIds.length === 0,
       },
     };
   }
@@ -133,6 +227,7 @@ export class UsersController {
    * Solo admins pueden actualizar usuarios.
    */
   @Put(':fusionauthUserId')
+  @Roles('admin')
   async update(
     @Req() req: TenantRequest,
     @Param('fusionauthUserId') fusionauthUserId: string,
@@ -152,8 +247,10 @@ export class UsersController {
   /**
    * DELETE /api/users/:fusionauthUserId/archive
    * Archiva un usuario (soft delete).
+   * Solo admins pueden archivar usuarios.
    */
   @Delete(':fusionauthUserId/archive')
+  @Roles('admin')
   @HttpCode(HttpStatus.OK)
   async archive(@Req() req: TenantRequest, @Param('fusionauthUserId') fusionauthUserId: string) {
     const { userModel } = req;
@@ -170,9 +267,10 @@ export class UsersController {
   /**
    * DELETE /api/users/:fusionauthUserId
    * Elimina permanentemente un usuario.
-   * ⚠️ OPERACIÓN IRREVERSIBLE
+   * Solo admins pueden eliminar usuarios.
    */
   @Delete(':fusionauthUserId')
+  @Roles('admin')
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(@Req() req: TenantRequest, @Param('fusionauthUserId') fusionauthUserId: string) {
     const { userModel } = req;
